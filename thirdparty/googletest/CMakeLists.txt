@@ -10,7 +10,7 @@
 
 # When other libraries are using a shared version of runtime libraries,
 # Google Test also has to use one.
-cmake_minimum_required(VERSION 2.8.12)
+cmake_minimum_required(VERSION 3.5)
 
 if (POLICY CMP0048)
   cmake_policy(SET CMP0048 NEW)
@@ -76,7 +76,7 @@ else()
   cmake_policy(SET CMP0048 NEW)
   project(gtest VERSION ${GOOGLETEST_VERSION} LANGUAGES CXX C)
 endif()
-cmake_minimum_required(VERSION 2.8.12)
+cmake_minimum_required(VERSION 3.5)
 
 if (POLICY CMP0063) # Visibility
   cmake_policy(SET CMP0063 NEW)
