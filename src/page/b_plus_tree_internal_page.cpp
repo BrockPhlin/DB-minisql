@@ -19,6 +19,13 @@
  * max page size
  */
 void InternalPage::Init(page_id_t page_id, page_id_t parent_id, int key_size, int max_size) {
+    SetPageType(IndexPageType::INTERNAL_PAGE);  // set page type
+    SetKeySize(key_size);
+    SetLSN();
+    SetSize(0);
+    SetMaxSize(max_size);
+    SetParentPageId(parent_id);
+    SetPageId(page_id);
 }
 /*
  * Helper method to get/set the key associated with input "index"(a.k.a
@@ -53,7 +60,7 @@ void *InternalPage::PairPtrAt(int index) {
 }
 
 void InternalPage::PairCopy(void *dest, void *src, int pair_num) {
-  memcpy(dest, src, pair_num * (GetKeySize() + sizeof(page_id_t)));
+  memcpy(dest, src, pair_num * pair_size);
 }
 /*****************************************************************************
  * LOOKUP
@@ -65,7 +72,7 @@ void InternalPage::PairCopy(void *dest, void *src, int pair_num) {
  * 用了二分查找
  */
 page_id_t InternalPage::Lookup(const GenericKey *key, const KeyManager &KM) {
-  return INVALID_PAGE_ID;
+    
 }
 
 /*****************************************************************************
