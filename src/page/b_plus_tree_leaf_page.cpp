@@ -21,7 +21,9 @@
  * next page id and set max size
  * 未初始化next_page_id
  */
-void LeafPage::Init(page_id_t page_id, page_id_t parent_id, int key_size, int max_size) {}
+void LeafPage::Init(page_id_t page_id, page_id_t parent_id, int key_size, int max_size) {
+    
+}
 
 /**
  * Helper methods to set/get next page id
@@ -100,12 +102,14 @@ int LeafPage::Insert(GenericKey *key, const RowId &value, const KeyManager &KM) 
  * Remove half of key & value pairs from this page to "recipient" page
  */
 void LeafPage::MoveHalfTo(LeafPage *recipient) {
+    
 }
 
 /*
  * Copy starting from items, and copy {size} number of elements into me.
  */
 void LeafPage::CopyNFrom(void *src, int size) {
+    
 }
 
 /*****************************************************************************
