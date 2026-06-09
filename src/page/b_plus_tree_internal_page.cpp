@@ -60,7 +60,7 @@ void *InternalPage::PairPtrAt(int index) {
 }
 
 void InternalPage::PairCopy(void *dest, void *src, int pair_num) {
-  memcpy(dest, src, pair_num * pair_size);
+  memmove(dest, src, pair_num * pair_size);
 }
 /*****************************************************************************
  * LOOKUP
@@ -110,7 +110,16 @@ void InternalPage::PopulateNewRoot(const page_id_t &old_value, GenericKey *new_k
  * @return:  new size after insertion
  */
 int InternalPage::InsertNodeAfter(const page_id_t &old_value, GenericKey *new_key, const page_id_t &new_value) {
-  return 0;
+    int index = ValueIndex(old_value) + 1;
+    int size = GetSize();
+    // 将从 index 到末尾的所有元素向后移动一位
+    if (index < size) {
+        PairCopy(PairPtrAt(index + 1), PairPtrAt(index), size - index);
+    }
+    SetValueAt(index, new_value);
+    SetKeyAt(index, new_key);
+    SetSize(size + 1);
+    return GetSize();
 }
 
 /*****************************************************************************
@@ -121,6 +130,7 @@ int InternalPage::InsertNodeAfter(const page_id_t &old_value, GenericKey *new_ke
  * buffer_pool_manager 是干嘛的？传给CopyNFrom()用于Fetch数据页
  */
 void InternalPage::MoveHalfTo(InternalPage *recipient, BufferPoolManager *buffer_pool_manager) {
+    
 }
 
 /* Copy entries into me, starting from {items} and copy {size} entries.
