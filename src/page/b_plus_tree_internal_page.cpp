@@ -176,6 +176,11 @@ void InternalPage::CopyNFrom(void *src, int size, BufferPoolManager *buffer_pool
  * NOTE: store key&value pair continuously after deletion
  */
 void InternalPage::Remove(int index) {
+    int size = GetSize();
+    for (int i = index; i < size - 1; i++) {
+        PairCopy(PairPtrAt(i), PairPtrAt(i + 1));
+    }
+    SetSize(size - 1);
 }
 
 /*
