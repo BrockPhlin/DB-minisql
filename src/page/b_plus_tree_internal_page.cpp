@@ -60,7 +60,7 @@ void *InternalPage::PairPtrAt(int index) {
 }
 
 void InternalPage::PairCopy(void *dest, void *src, int pair_num) {
-  memmove(dest, src, pair_num * pair_size);
+  memcpy(dest, src, pair_num * pair_size);
 }
 /*****************************************************************************
  * LOOKUP
@@ -113,8 +113,8 @@ int InternalPage::InsertNodeAfter(const page_id_t &old_value, GenericKey *new_ke
     int index = ValueIndex(old_value) + 1;
     int size = GetSize();
     // 将从 index 到末尾的所有元素向后移动一位
-    if (index < size) {
-        PairCopy(PairPtrAt(index + 1), PairPtrAt(index), size - index);
+    for (int i = size - 1; i >= index; i--) {
+        PairCopy(PairPtrAt(i + 1), PairPtrAt(i));
     }
     SetValueAt(index, new_value);
     SetKeyAt(index, new_key);
@@ -130,7 +130,15 @@ int InternalPage::InsertNodeAfter(const page_id_t &old_value, GenericKey *new_ke
  * buffer_pool_manager 是干嘛的？传给CopyNFrom()用于Fetch数据页
  */
 void InternalPage::MoveHalfTo(InternalPage *recipient, BufferPoolManager *buffer_pool_manager) {
+    int total_size = GetSize();
+    int start_index = total_size / 2;
+    int move_count = total_size - start_index;
     
+    // 将后半部分拷贝到 recipient
+    recipient->CopyNFrom(PairPtrAt(start_index), move_count, buffer_pool_manager);
+    
+    // 更新当前页的大小
+    SetSize(start_index);
 }
 
 /* Copy entries into me, starting from {items} and copy {size} entries.
@@ -139,6 +147,24 @@ void InternalPage::MoveHalfTo(InternalPage *recipient, BufferPoolManager *buffer
  *
  */
 void InternalPage::CopyNFrom(void *src, int size, BufferPoolManager *buffer_pool_manager) {
+    int old_size = GetSize();
+    
+    // 将 size 个 pair 拷贝到当前页末尾
+    PairCopy(PairPtrAt(old_size), src, size);
+    
+    // 更新当前页大小
+    SetSize(old_size + size);
+    
+    // 更新所有被移动的子节点的父指针
+    for (int i = old_size; i < GetSize(); i++) {
+        page_id_t child_page_id = ValueAt(i);
+        Page *page = buffer_pool_manager->FetchPage(child_page_id);
+        if (page != nullptr) {
+            auto *child = reinterpret_cast<BPlusTreePage *>(page->GetData());
+            child->SetParentPageId(GetPageId());
+            buffer_pool_manager->UnpinPage(child_page_id, true);
+        }
+    }
 }
 
 /*****************************************************************************
