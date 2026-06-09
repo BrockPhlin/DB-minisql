@@ -200,10 +200,20 @@ page_id_t InternalPage::RemoveAndReturnOnlyChild() {
  * Remove all of key & value pairs from this page to "recipient" page.
  * The middle_key is the separation key you should get from the parent. You need
  * to make sure the middle key is added to the recipient to maintain the invariant.
- * You also need to use BufferPoolManager to persist changes to the parent page id for those
- * pages that are moved to the recipient
+ * You also need to use BufferPoolManager to persist changes to the parent page id
+ * for those pages that are moved to the recipient
  */
-void InternalPage::MoveAllTo(InternalPage *recipient, GenericKey *middle_key, BufferPoolManager *buffer_pool_manager) {
+void InternalPage::MoveAllTo(InternalPage *recipient, GenericKey *middle_key,
+                            BufferPoolManager *buffer_pool_manager) {
+    // set middle key at recipient's current end
+    int size = recipient->GetSize();
+    recipient->SetKeyAt(size, middle_key);
+    
+    // move all pairs from current page to recipient
+    recipient->CopyNFrom(PairPtrAt(0), GetSize(), buffer_pool_manager);
+
+    // clear current page
+    SetSize(0);
 }
 
 /*****************************************************************************
