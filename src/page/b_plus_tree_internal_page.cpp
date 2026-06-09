@@ -188,7 +188,9 @@ void InternalPage::Remove(int index) {
  * NOTE: only call this method within AdjustRoot()(in b_plus_tree.cpp)
  */
 page_id_t InternalPage::RemoveAndReturnOnlyChild() {
-  return 0;
+    page_id_t only_child = ValueAt(0);
+    SetSize(0);
+    return only_child;
 }
 
 /*****************************************************************************
