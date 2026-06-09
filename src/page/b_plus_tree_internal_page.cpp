@@ -72,7 +72,20 @@ void InternalPage::PairCopy(void *dest, void *src, int pair_num) {
  * 用了二分查找
  */
 page_id_t InternalPage::Lookup(const GenericKey *key, const KeyManager &KM) {
-    
+    int left = 1, right = GetSize() - 1;
+    int mid = (left + right) / 2;
+    while (left <= right){
+        if (KM.CompareKeys(key, KeyAt(mid)) > 0){ // 左 > 右
+            left = mid + 1;
+        }else if (KM.CompareKeys(key, KeyAt(mid)) < 0){
+            right = mid - 1;
+        }else{
+            return ValueAt(mid);
+        }
+        mid = (left + right) / 2;
+    }
+    // 走到这说明没找到
+    return ValueAt(right);
 }
 
 /*****************************************************************************
@@ -85,6 +98,7 @@ page_id_t InternalPage::Lookup(const GenericKey *key, const KeyManager &KM) {
  * NOTE: This method is only called within InsertIntoParent()(b_plus_tree.cpp)
  */
 void InternalPage::PopulateNewRoot(const page_id_t &old_value, GenericKey *new_key, const page_id_t &new_value) {
+    
 }
 
 /*
