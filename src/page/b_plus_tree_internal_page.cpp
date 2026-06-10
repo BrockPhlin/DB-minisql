@@ -224,18 +224,38 @@ void InternalPage::MoveAllTo(InternalPage *recipient, GenericKey *middle_key,
  *
  * The middle_key is the separation key you should get from the parent. You need
  * to make sure the middle key is added to the recipient to maintain the invariant.
- * You also need to use BufferPoolManager to persist changes to the parent page id for those
- * pages that are moved to the recipient
+ * You also need to use BufferPoolManager to persist changes to the parent page id
+ * for those pages that are moved to the recipient
  */
-void InternalPage::MoveFirstToEndOf(InternalPage *recipient, GenericKey *middle_key,
-                                    BufferPoolManager *buffer_pool_manager) {
+void InternalPage::MoveFirstToEndOf(InternalPage *recipient,
+    GenericKey *middle_key, BufferPoolManager *buffer_pool_manager) {
+    // 把 middle_key 和第一个 value 追加到 recipient 末尾
+    page_id_t first_value = ValueAt(0);
+    recipient->CopyLastFrom(middle_key, first_value, buffer_pool_manager);
+    
+    // 删除当前节点的第一个元素
+    Remove(0);
 }
 
 /* Append an entry at the end.
  * Since it is an internal page, the moved entry(page)'s parent needs to be updated.
  * So I need to 'adopt' it by changing its parent page id, which needs to be persisted with BufferPoolManger
  */
-void InternalPage::CopyLastFrom(GenericKey *key, const page_id_t value, BufferPoolManager *buffer_pool_manager) {
+void InternalPage::CopyLastFrom(GenericKey *key, const page_id_t value,
+                                BufferPoolManager *buffer_pool_manager) {
+    // 在末尾追加一个键值对
+    int size = GetSize();
+    SetKeyAt(size, key);
+    SetValueAt(size, value);
+    SetSize(size + 1);
+    
+    // 更新被移动的子节点的父指针
+    Page *page = buffer_pool_manager->FetchPage(value);
+    if (page != nullptr) {
+        auto *child = reinterpret_cast<BPlusTreePage *>(page->GetData());
+        child->SetParentPageId(GetPageId());
+        buffer_pool_manager->UnpinPage(value, true);
+    }
 }
 
 /*
@@ -247,6 +267,17 @@ void InternalPage::CopyLastFrom(GenericKey *key, const page_id_t value, BufferPo
  */
 void InternalPage::MoveLastToFrontOf(InternalPage *recipient, GenericKey *middle_key,
                                      BufferPoolManager *buffer_pool_manager) {
+    // 获取当前节点最后一个元素的value
+    page_id_t last_value = ValueAt(GetSize() - 1);
+    
+    // 调用recipient的CopyFirstFrom，把last_value插入到开头
+    recipient->CopyFirstFrom(last_value, buffer_pool_manager);
+    
+    // 设置middle_key到recipient的位置1（因为位置0是INVALID）
+    recipient->SetKeyAt(1, middle_key);
+    
+    // 删除当前节点的最后一个元素
+    SetSize(GetSize() - 1);
 }
 
 /* Append an entry at the beginning.
@@ -254,4 +285,21 @@ void InternalPage::MoveLastToFrontOf(InternalPage *recipient, GenericKey *middle
  * So I need to 'adopt' it by changing its parent page id, which needs to be persisted with BufferPoolManger
  */
 void InternalPage::CopyFirstFrom(const page_id_t value, BufferPoolManager *buffer_pool_manager) {
+    // 将所有元素向后移动一位（从位置1开始，因为位置0的键是INVALID）
+    int size = GetSize();
+    for (int i = size; i > 0; i--) {
+        PairCopy(PairPtrAt(i), PairPtrAt(i - 1));
+    }
+    
+    // 在位置0设置新的value
+    SetValueAt(0, value);
+    SetSize(size + 1);
+    
+    // 更新被移动的子节点的父指针
+    Page *page = buffer_pool_manager->FetchPage(value);
+    if (page != nullptr) {
+        auto *child = reinterpret_cast<BPlusTreePage *>(page->GetData());
+        child->SetParentPageId(GetPageId());
+        buffer_pool_manager->UnpinPage(value, true);
+    }
 }
