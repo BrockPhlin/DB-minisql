@@ -110,12 +110,19 @@ void InternalPage::PopulateNewRoot(const page_id_t &old_value, GenericKey *new_k
  * @return:  new size after insertion
  */
 int InternalPage::InsertNodeAfter(const page_id_t &old_value, GenericKey *new_key, const page_id_t &new_value) {
-    int index = ValueIndex(old_value) + 1;
+    int old_index = ValueIndex(old_value);
+    if (old_index == -1) {
+        return GetSize();  // old_value 不存在
+    }
+    
+    int index = old_index + 1;
     int size = GetSize();
+    
     // 将从 index 到末尾的所有元素向后移动一位
     for (int i = size - 1; i >= index; i--) {
         PairCopy(PairPtrAt(i + 1), PairPtrAt(i));
     }
+    
     SetValueAt(index, new_value);
     SetKeyAt(index, new_key);
     SetSize(size + 1);
