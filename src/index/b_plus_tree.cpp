@@ -10,23 +10,25 @@
 /**
  * TODO: Student Implement
  */
-BPlusTree::BPlusTree(index_id_t index_id, BufferPoolManager *buffer_pool_manager, const KeyManager &KM,
-                     int leaf_max_size, int internal_max_size)
+BPlusTree::BPlusTree(index_id_t index_id, BufferPoolManager *buffer_pool_manager,
+                    const KeyManager &KM, int leaf_max_size, int internal_max_size)
     : index_id_(index_id),
       buffer_pool_manager_(buffer_pool_manager),
       processor_(KM),
       leaf_max_size_(leaf_max_size),
       internal_max_size_(internal_max_size) {
+    // 已经写好了，不需要修改
 }
 
 void BPlusTree::Destroy(page_id_t current_page_id) {
+    
 }
 
 /*
  * Helper function to decide whether current b+tree is empty
  */
 bool BPlusTree::IsEmpty() const {
-  return false;
+    
 }
 
 /*****************************************************************************

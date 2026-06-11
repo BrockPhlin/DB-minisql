@@ -147,7 +147,7 @@ void LeafPage::MoveHalfTo(LeafPage *recipient) {
 /*
  * Copy starting from items, and copy {size} number of elements into me.
  */
-void LeafPage::CopyNFrom(void *src, int size) { // check me
+void LeafPage::CopyNFrom(void *src, int size) {
     int index = GetSize();
     PairCopy(PairPtrAt(index), src, size);
     IncreaseSize(size);
