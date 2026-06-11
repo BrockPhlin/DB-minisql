@@ -129,7 +129,7 @@ bool DiskManager::IsPageFree(page_id_t logical_page_id) {
 
 page_id_t DiskManager::MapPageId(page_id_t logical_page_id) {
   uint32_t extent_id = logical_page_id / BITMAP_SIZE;          // 计算逻辑页所造的extent编号
-  uint32_t offset_in_extent = logical_page_id & BITMAP_SIZE;   // 计算逻辑页在extent中的偏移量
+  uint32_t offset_in_extent = logical_page_id % BITMAP_SIZE;   // 计算逻辑页在extent中的偏移量
   return 1 + extent_id * (BITMAP_SIZE + 1) + offset_in_extent + 1; // 加的是disk_file_meta和bitmap_page（1+1=2）
 }
 

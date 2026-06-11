@@ -1,6 +1,6 @@
 #include "buffer/lru_replacer.h"
 
-LRUReplacer::LRUReplacer(size_t num_pages){}
+LRUReplacer::LRUReplacer(size_t num_pages) : num_pages_(num_pages) {}
 
 LRUReplacer::~LRUReplacer() = default;
 
