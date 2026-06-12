@@ -57,18 +57,14 @@ uint32_t Column::SerializeTo(char *buf) const {
  * TODO: Student Implement
  */
 uint32_t Column::GetSerializedSize() const {
-  char *p = buf;
-  uint32_t magic = COLUMN_MAGIC_NUM;       // 头文件里已经定义
-  uint32_t name_len = name_.size();
-  memcpy(p, &magic, 4);                    p += 4;
-  memcpy(p, &name_len, 4);                 p += 4;
-  memcpy(p, name_.data(), name_len);       p += name_len;
-  memcpy(p, &type_, sizeof(TypeId));       p += 4;   // TypeId 是 enum，本质 int
-  memcpy(p, &len_, 4);                     p += 4;
-  memcpy(p, &table_ind_, 4);               p += 4;
-  memcpy(p, &nullable_, 1);                p += 1;
-  memcpy(p, &unique_, 1);                  p += 1;
-  return p - buf;
+  return 4        // magic
+       + 4        // name_len
+       + name_.size()
+       + 4        // type
+       + 4        // len
+       + 4        // table_ind
+       + 1        // nullable
+       + 1;       // unique
 }
 
 /**

@@ -12,6 +12,11 @@ class TableHeap {
   friend class TableIterator;
 
  public:
+  BufferPoolManager *GetBufferPoolManager() const { return buffer_pool_manager_; }
+  Schema           *GetSchema()          const { return schema_; }
+  LockManager      *GetLockManager()     const { return lock_manager_; }
+  LogManager       *GetLogManager()      const { return log_manager_; }
+
   static TableHeap *Create(BufferPoolManager *buffer_pool_manager, Schema *schema, Txn *txn, LogManager *log_manager,
                            LockManager *lock_manager) {
     return new TableHeap(buffer_pool_manager, schema, txn, log_manager, lock_manager);
@@ -113,7 +118,13 @@ class TableHeap {
         schema_(schema),
         log_manager_(log_manager),
         lock_manager_(lock_manager) {
-    ASSERT(false, "Not implemented yet.");
+    // 申请第一页 TablePage
+    page_id_t pid;
+    auto page = reinterpret_cast<TablePage *>(buffer_pool_manager_->NewPage(pid));
+    ASSERT(page != nullptr, "Failed to allocate first page.");
+    page->Init(pid, INVALID_PAGE_ID, log_manager_, txn);
+    first_page_id_ = pid;
+    buffer_pool_manager_->UnpinPage(pid, true);
   };
 
   explicit TableHeap(BufferPoolManager *buffer_pool_manager, page_id_t first_page_id, Schema *schema,
