@@ -39,22 +39,55 @@ Column::Column(const Column *other)
 * TODO: Student Implement
 */
 uint32_t Column::SerializeTo(char *buf) const {
-  // replace with your code here
-  return 0;
+  char *p = buf;
+  uint32_t magic = COLUMN_MAGIC_NUM;       // 头文件里已经定义
+  uint32_t name_len = name_.size();
+  memcpy(p, &magic, 4);                    p += 4;
+  memcpy(p, &name_len, 4);                 p += 4;
+  memcpy(p, name_.data(), name_len);       p += name_len;
+  memcpy(p, &type_, sizeof(TypeId));       p += 4;   // TypeId 是 enum，本质 int
+  memcpy(p, &len_, 4);                     p += 4;
+  memcpy(p, &table_ind_, 4);               p += 4;
+  memcpy(p, &nullable_, 1);                p += 1;
+  memcpy(p, &unique_, 1);                  p += 1;
+  return p - buf;
 }
 
 /**
  * TODO: Student Implement
  */
 uint32_t Column::GetSerializedSize() const {
-  // replace with your code here
-  return 0;
+  char *p = buf;
+  uint32_t magic = COLUMN_MAGIC_NUM;       // 头文件里已经定义
+  uint32_t name_len = name_.size();
+  memcpy(p, &magic, 4);                    p += 4;
+  memcpy(p, &name_len, 4);                 p += 4;
+  memcpy(p, name_.data(), name_len);       p += name_len;
+  memcpy(p, &type_, sizeof(TypeId));       p += 4;   // TypeId 是 enum，本质 int
+  memcpy(p, &len_, 4);                     p += 4;
+  memcpy(p, &table_ind_, 4);               p += 4;
+  memcpy(p, &nullable_, 1);                p += 1;
+  memcpy(p, &unique_, 1);                  p += 1;
+  return p - buf;
 }
 
 /**
  * TODO: Student Implement
  */
 uint32_t Column::DeserializeFrom(char *buf, Column *&column) {
-  // replace with your code here
-  return 0;
+  char *p = buf;
+  uint32_t magic; memcpy(&magic, p, 4);             p += 4;
+  ASSERT(magic == COLUMN_MAGIC_NUM, "Column magic mismatch");
+  uint32_t name_len; memcpy(&name_len, p, 4);       p += 4;
+  std::string name(p, name_len);                    p += name_len;
+  TypeId type; memcpy(&type, p, 4);                 p += 4;
+  uint32_t len; memcpy(&len, p, 4);                 p += 4;
+  uint32_t table_ind; memcpy(&table_ind, p, 4);     p += 4;
+  bool nullable, unique;
+  memcpy(&nullable, p, 1);                          p += 1;
+  memcpy(&unique, p, 1);                            p += 1;
+
+  // 注意：name_ 在 Column 里是 std::string，要用 ctor
+  column = new Column(name, type, len, table_ind, nullable, unique);
+  return p - buf;
 }
