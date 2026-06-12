@@ -21,14 +21,36 @@ BPlusTree::BPlusTree(index_id_t index_id, BufferPoolManager *buffer_pool_manager
 }
 
 void BPlusTree::Destroy(page_id_t current_page_id) {
-    
+    if (current_page_id == INVALID_PAGE_ID) {
+        current_page_id = root_page_id_;
+    }
+    if (current_page_id == INVALID_PAGE_ID) {
+        return; // 树已经是空的了
+    }
+    Page *page = buffer_pool_manager_->FetchPage(current_page_id);
+    if (page == nullptr) return;
+    auto *node = reinterpret_cast<BPlusTreePage *>(page->GetData());
+    if (!node->IsLeafPage()) {
+        // 内部节点：先递归销毁所有子节点
+        auto *internal = reinterpret_cast<InternalPage *>(node);
+        for (int i = 0; i < internal->GetSize(); i++) {
+            Destroy(internal->ValueAt(i));
+        }
+    }
+    // 如果是根节点，重置 root_page_id_ 并更新 index_roots_page
+    if (node->IsRootPage()) {
+        root_page_id_ = INVALID_PAGE_ID;
+        UpdateRootPageId();
+    }
+    buffer_pool_manager_->UnpinPage(current_page_id, false);
+    buffer_pool_manager_->DeletePage(current_page_id);
 }
 
 /*
  * Helper function to decide whether current b+tree is empty
  */
 bool BPlusTree::IsEmpty() const {
-    
+    return root_page_id_ == INVALID_PAGE_ID;
 }
 
 /*****************************************************************************
@@ -215,6 +237,7 @@ Page *BPlusTree::FindLeafPage(const GenericKey *key, page_id_t page_id, bool lef
  * updating it.
  */
 void BPlusTree::UpdateRootPageId(int insert_record) {
+    
 }
 
 /**
