@@ -10,8 +10,8 @@ IndexScanExecutor::IndexScanExecutor(ExecuteContext *exec_ctx, const IndexScanPl
 
 void IndexScanExecutor::Init() {
   exec_ctx_->GetCatalog()->GetTable(plan_->GetTableName(), table_info_);
-  auto first_row = table_info_->GetTableHeap()->Begin(nullptr);
   result_ = IndexScan(plan_->GetPredicate());
+  cursor_ = 0;
   is_schema_same_ = SchemaEqual(table_info_->GetSchema(), plan_->OutputSchema());
 }
 
@@ -86,22 +86,20 @@ bool IndexScanExecutor::Next(Row *row, RowId *rid) {
   auto predicate = plan_->GetPredicate();
   auto table_schema = table_info_->GetSchema();
   while (cursor_ < result_.size()) {
-    auto p_row = new Row(result_[cursor_]);
-    table_info_->GetTableHeap()->GetTuple(p_row, nullptr);
+    Row p_row(result_[cursor_]);
+    table_info_->GetTableHeap()->GetTuple(&p_row, nullptr);
     if (plan_->need_filter_) {
-      if (!predicate->Evaluate(p_row).CompareEquals(Field(kTypeInt, 1))) {
+      if (!predicate->Evaluate(&p_row).CompareEquals(Field(kTypeInt, 1))) {
         cursor_++;
-        delete p_row;
         continue;
       }
     }
     *rid = result_[cursor_];
     if (!is_schema_same_) {
-      TupleTransfer(table_schema, plan_->OutputSchema(), p_row, row);
+      TupleTransfer(table_schema, plan_->OutputSchema(), &p_row, row);
     } else {
-      *row = *p_row;
+      *row = p_row;
     }
-    delete p_row;
     cursor_++;
     return true;
   }
