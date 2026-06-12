@@ -7,3 +7,6 @@ datas/
 cmake-build-debug/
 cmake-build-release/
 /instruction-index-manager.md
+.claude/
+.cache/
+*.idx

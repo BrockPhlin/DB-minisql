@@ -61,7 +61,19 @@ bool BPlusTree::IsEmpty() const {
  * This method is used for point query
  * @return : true means key exists
  */
-bool BPlusTree::GetValue(const GenericKey *key, std::vector<RowId> &result, Txn *transaction) { return false; }
+bool BPlusTree::GetValue(const GenericKey *key, std::vector<RowId> &result, Txn *transaction) {
+    if (IsEmpty()) return false;
+    Page *leaf_page = FindLeafPage(key);
+    if (leaf_page == nullptr) return false;
+    auto *leaf_node = reinterpret_cast<LeafPage *>(leaf_page->GetData());
+    RowId value;
+    bool found = leaf_node->Lookup(key, value, processor_);
+    buffer_pool_manager_->UnpinPage(leaf_page->GetPageId(), false);
+    if (found) {
+        result.push_back(value);
+    }
+    return found;
+}
 
 /*****************************************************************************
  * INSERTION
