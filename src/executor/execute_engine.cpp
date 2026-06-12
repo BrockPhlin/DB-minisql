@@ -383,35 +383,19 @@ dberr_t ExecuteEngine::ExecuteCreateTable(pSyntaxNode ast, ExecuteContext *conte
     pSyntaxNode col_type_node = col_name_node->next_;
     std::string col_type = col_type_node->val_;
 
-    bool is_unique = false;
+    // UNIQUE constraint is stored in the val_ field of kNodeColumnDefinition
+    bool is_unique = (col_def->val_ != nullptr && strcmp(col_def->val_, "unique") == 0);
 
     if (col_type == "int") {
-      // 检查 UNIQUE 约束
-      pSyntaxNode next_node = col_type_node->next_;
-      if (next_node != nullptr && next_node->type_ == kNodeIdentifier &&
-          strcmp(next_node->val_, "unique") == 0) {
-        is_unique = true;
-      }
       columns.push_back(new Column(col_name, kTypeInt, col_idx++, true, is_unique));
     } else if (col_type == "float") {
-      pSyntaxNode next_node = col_type_node->next_;
-      if (next_node != nullptr && next_node->type_ == kNodeIdentifier &&
-          strcmp(next_node->val_, "unique") == 0) {
-        is_unique = true;
-      }
       columns.push_back(new Column(col_name, kTypeFloat, col_idx++, true, is_unique));
     } else if (col_type == "char") {
-      // col_type_node->next_ = kNodeNumber (length)
-      pSyntaxNode length_node = col_type_node->next_;
+      // CHAR length is stored in col_type_node->child_ (kNodeNumber)
+      pSyntaxNode length_node = col_type_node->child_;
       uint32_t length = 0;
       if (length_node != nullptr && length_node->type_ == kNodeNumber) {
         length = static_cast<uint32_t>(atoi(length_node->val_));
-      }
-      // 检查 UNIQUE (可能在 length 之后)
-      pSyntaxNode unique_node = (length_node != nullptr) ? length_node->next_ : nullptr;
-      if (unique_node != nullptr && unique_node->type_ == kNodeIdentifier &&
-          strcmp(unique_node->val_, "unique") == 0) {
-        is_unique = true;
       }
       columns.push_back(new Column(col_name, kTypeChar, length, col_idx++, true, is_unique));
     } else {
@@ -586,7 +570,7 @@ dberr_t ExecuteEngine::ExecuteCreateIndex(pSyntaxNode ast, ExecuteContext *conte
   std::string index_type = "bptree";  // 默认使用 B+ Tree
   pSyntaxNode type_node = column_list->next_;
   if (type_node != nullptr && type_node->type_ == kNodeIndexType) {
-    index_type = type_node->val_;
+    index_type = type_node->child_->val_;
   }
 
   IndexInfo *index_info = nullptr;
@@ -615,31 +599,23 @@ dberr_t ExecuteEngine::ExecuteDropIndex(pSyntaxNode ast, ExecuteContext *context
     return DB_FAILED;
   }
 
-  // 解析: DROP INDEX index_name ON table_name
+  // DROP INDEX 语法不含表名，需要遍历所有表查找该索引
   // ast->child_ = kNodeIdentifier (index_name)
   std::string index_name = ast->child_->val_;
 
-  // ast->child_->next_ = kNodeIdentifier (table_name)
   std::string table_name;
-  pSyntaxNode table_name_node = ast->child_->next_;
-  if (table_name_node != nullptr && table_name_node->type_ == kNodeIdentifier) {
-    table_name = table_name_node->val_;
-  } else {
-    // 如果没有提供 table_name，尝试在所有表中搜索该索引
-    // 遍历当前数据库的所有表
-    std::vector<TableInfo *> tables;
-    dbs_[current_db_]->catalog_mgr_->GetTables(tables);
-    for (const auto &table : tables) {
-      IndexInfo *index_info = nullptr;
-      if (dbs_[current_db_]->catalog_mgr_->GetIndex(table->GetTableName(), index_name, index_info) == DB_SUCCESS) {
-        table_name = table->GetTableName();
-        break;
-      }
+  std::vector<TableInfo *> tables;
+  dbs_[current_db_]->catalog_mgr_->GetTables(tables);
+  for (const auto &table : tables) {
+    IndexInfo *index_info = nullptr;
+    if (dbs_[current_db_]->catalog_mgr_->GetIndex(table->GetTableName(), index_name, index_info) == DB_SUCCESS) {
+      table_name = table->GetTableName();
+      break;
     }
-    if (table_name.empty()) {
-      std::cout << "Index " << index_name << " not found." << std::endl;
-      return DB_INDEX_NOT_FOUND;
-    }
+  }
+  if (table_name.empty()) {
+    std::cout << "Index " << index_name << " not found." << std::endl;
+    return DB_INDEX_NOT_FOUND;
   }
 
   dberr_t result = dbs_[current_db_]->catalog_mgr_->DropIndex(table_name, index_name);
