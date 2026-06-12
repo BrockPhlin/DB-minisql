@@ -237,7 +237,7 @@ IndexIterator BPlusTree::End() {
  * Note: the leaf page is pinned, you need to unpin it after use.
  */
 Page *BPlusTree::FindLeafPage(const GenericKey *key, page_id_t page_id, bool leftMost) {
-  return nullptr;
+    
 }
 
 /*
@@ -249,7 +249,22 @@ Page *BPlusTree::FindLeafPage(const GenericKey *key, page_id_t page_id, bool lef
  * updating it.
  */
 void BPlusTree::UpdateRootPageId(int insert_record) {
-    
+    Page *page = buffer_pool_manager_->FetchPage(INDEX_ROOTS_PAGE_ID);
+    if (page == nullptr) return;
+    auto *root_page = reinterpret_cast<IndexRootsPage *>(page->GetData());
+    if (insert_record != 0) {
+        // 插入新记录
+        root_page->Insert(index_id_, root_page_id_);
+    } else {
+        if (root_page_id_ == INVALID_PAGE_ID) {
+            // 树被删了，删除记录
+            root_page->Delete(index_id_);
+        } else {
+            // 更新根页ID
+            root_page->Update(index_id_, root_page_id_);
+        }
+    }
+    buffer_pool_manager_->UnpinPage(INDEX_ROOTS_PAGE_ID, true);
 }
 
 /**

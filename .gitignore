@@ -8,5 +8,6 @@ cmake-build-debug/
 cmake-build-release/
 /instruction-index-manager.md
 .claude/
+.codex/
 .cache/
 *.idx
