@@ -67,7 +67,13 @@ class IndexInfo {
     // Step1: init index metadata and table info
     // Step2: mapping index key to key schema
     // Step3: call CreateIndex to create the index
-    ASSERT(false, "Not Implemented yet.");
+    // meta_data 是 CatalogManager 创建或加载出来的 IndexMetadata，IndexInfo 负责持有并最终释放它。
+    meta_data_ = meta_data;
+    // 索引 Schema 只包含被索引的列；这里用 key_map_ 从表 Schema 中挑出这些列。
+    // ShallowCopySchema 不复制 Column 对象，只共享表 Schema 中的 Column，所以析构时不会重复 delete 列。
+    key_schema_ = Schema::ShallowCopySchema(table_info->GetSchema(), meta_data_->GetKeyMapping());
+    // 当前项目的索引实现只有 B+Tree；CreateIndex 会根据 key_schema_ 创建真正的 BPlusTreeIndex。
+    index_ = CreateIndex(buffer_pool_manager, "bptree");
   }
 
   inline Index *GetIndex() { return index_; }
