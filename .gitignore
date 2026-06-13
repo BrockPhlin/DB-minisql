@@ -12,5 +12,5 @@ cmake-build-release/
 /instruction-index-manager.md
 /instruction-catalog-manager.md
 CLAUDE.md
-CODEX.md
+AGENTS.md
 *.idx
