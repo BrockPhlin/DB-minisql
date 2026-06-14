@@ -43,7 +43,10 @@ uint32_t IndexMetadata::SerializeTo(char *buf) const {
  * TODO: Student Implement
  */
 uint32_t IndexMetadata::GetSerializedSize() const {
-  return 0;
+  // IndexMetadata 的布局是：
+  // 4 字节魔数 + 4 字节 index_id + 4 字节索引名长度 + 索引名内容 +
+  // 4 字节 table_id + 4 字节索引列数量 + 每个索引列 4 字节表列下标。
+  return 4 + 4 + MACH_STR_SERIALIZED_SIZE(index_name_) + 4 + 4 + 4 * key_map_.size();
 }
 
 uint32_t IndexMetadata::DeserializeFrom(char *buf, IndexMetadata *&index_meta) {
