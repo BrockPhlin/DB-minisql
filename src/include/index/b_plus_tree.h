@@ -101,12 +101,12 @@ class BPlusTree {
   void ToString(BPlusTreePage *page, BufferPoolManager *bpm) const;
 
   // member variable
-  index_id_t index_id_;
-  page_id_t root_page_id_{INVALID_PAGE_ID};
+  index_id_t index_id_;                     // 这是哪个索引
+  page_id_t root_page_id_{INVALID_PAGE_ID}; // 根的 page id，INVALID_PAGE_ID 代表空树
   BufferPoolManager *buffer_pool_manager_;
   KeyManager processor_;
-  int leaf_max_size_;
-  int internal_max_size_;
+  int leaf_max_size_;                       // 叶子页最大容量，单位是 key/value 对数
+  int internal_max_size_;                   // 内部页最大容量，单位是 key/child 对数
 };
 
 #endif  // MINISQL_B_PLUS_TREE_H

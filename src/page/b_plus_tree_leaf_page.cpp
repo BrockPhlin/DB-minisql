@@ -162,11 +162,15 @@ void LeafPage::CopyNFrom(void *src, int size) {
  * If the key does not exist, then return false
  */
 bool LeafPage::Lookup(const GenericKey *key, RowId &value, const KeyManager &KM) {
+    // KeyIndex 返回第一个 >= key 的位置，叶子页内的 key 按序存放
     int index = KeyIndex(key, KM);
+    // index 可能等于 GetSize()，所以先检查边界，再判断该位置的 key 是否命中
     if (index < GetSize() && KM.CompareKeys(KeyAt(index), key) == 0) {
+        // 找到目标 key 后，把对应的 RowId 通过输出参数返回
         value = ValueAt(index);
         return true;
     }
+    // 没找到目标 key
     return false;
 }
 
@@ -180,14 +184,17 @@ bool LeafPage::Lookup(const GenericKey *key, RowId &value, const KeyManager &KM)
  * @return  page size after deletion
  */
 int LeafPage::RemoveAndDeleteRecord(const GenericKey *key, const KeyManager &KM) {
+    // 先找到第一个 >= key 的位置，只有这个位置可能是要删除的 key
     int index = KeyIndex(key, KM);
+    // 如果越界，或者当前位置的 key 不相等，说明目标 key 不在当前叶子页中
     if (index >= GetSize() || KM.CompareKeys(KeyAt(index), key) != 0) {
         return GetSize();  // key 不存在，直接返回
     }
-    // 前移元素
+    // 找到后，将后面的元素整体前移一位，覆盖被删除的位置
     for (int i = index; i < GetSize() - 1; i++) {
         PairCopy(PairPtrAt(i), PairPtrAt(i + 1), 1);
     }
+    // 缩小当前叶子页记录数量。
     IncreaseSize(-1);
     return GetSize();
 }

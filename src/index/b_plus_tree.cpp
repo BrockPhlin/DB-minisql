@@ -18,18 +18,17 @@ BPlusTree::BPlusTree(index_id_t index_id, BufferPoolManager *buffer_pool_manager
       processor_(KM),
       leaf_max_size_(leaf_max_size),
       internal_max_size_(internal_max_size) {
+    
     // 当调用者没有显式指定页容量时，根据页头大小和 key / value pair 的真实宽度计算
-    // -1 是为了给插入后的临时 overflow 留出一个槽位
-    // 叶子页/内部页会先插入到当前页，再在 size > max_size 时分裂
     if (leaf_max_size_ == UNDEFINED_SIZE) {
-        leaf_max_size_ = (PAGE_SIZE - LEAF_PAGE_HEADER_SIZE) / (processor_.GetKeySize() + sizeof(RowId)) - 1;
+        leaf_max_size_ = (PAGE_SIZE - LEAF_PAGE_HEADER_SIZE) / (processor_.GetKeySize() + sizeof(RowId)) - 1; // -1 是为了给插入后的临时 overflow 留出一个槽位
     }
     if (internal_max_size_ == UNDEFINED_SIZE) {
         internal_max_size_ = (PAGE_SIZE - INTERNAL_PAGE_HEADER_SIZE) / (processor_.GetKeySize() + sizeof(page_id_t)) - 1;
     }
 
     // INDEX_ROOTS_PAGE_ID 保存 index_id -> root_page_id 的映射
-    // 如果这个索引以前已经创建过，就从这里恢复根页；否则保持 INVALID_PAGE_ID，表示空树
+    // 如果这个索引以前已经创建过，就从这里恢复根页号。否则保持 INVALID_PAGE_ID，表示空树
     Page *page = buffer_pool_manager_->FetchPage(INDEX_ROOTS_PAGE_ID);
     if (page != nullptr) {
         auto *root_page = reinterpret_cast<IndexRootsPage *>(page->GetData());
@@ -48,9 +47,11 @@ void BPlusTree::Destroy(page_id_t current_page_id) {
     if (current_page_id == INVALID_PAGE_ID) {
         return; // 树已经是空的了
     }
+    
     Page *page = buffer_pool_manager_->FetchPage(current_page_id);
     if (page == nullptr) return;  // FetchPage 失败，提前返回
     auto *node = reinterpret_cast<BPlusTreePage *>(page->GetData());
+
     // 是内部节点，先递归销毁所有子节点
     if (!node->IsLeafPage()) {
         auto *internal = reinterpret_cast<InternalPage *>(node);
@@ -58,6 +59,7 @@ void BPlusTree::Destroy(page_id_t current_page_id) {
             Destroy(internal->ValueAt(i));
         }
     }
+    
     // 是根节点，重置 root_page_id_ 并更新 index_roots_page
     if (node->IsRootPage()) {
         root_page_id_ = INVALID_PAGE_ID;
@@ -88,7 +90,7 @@ bool BPlusTree::GetValue(const GenericKey *key, std::vector<RowId> &result, Txn 
 
     Page *leaf_page = FindLeafPage(key);
 
-    // leaf_page 为 nullptr 时不需要 unpin
+    // leaf_page 为 nullptr 时表示查找失败，不需要 unpin
     if (leaf_page == nullptr) return false;
 
     // Page 中的 data_ 存的是 BPlusTreeLeafPage
