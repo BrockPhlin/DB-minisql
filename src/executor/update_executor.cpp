@@ -15,7 +15,7 @@ void UpdateExecutor::Init() {
   txn_ = exec_ctx_->GetTransaction();
 }
 
-bool UpdateExecutor::Next([[maybe_unused]] Row *row, RowId *rid) {
+bool UpdateExecutor::Next(Row *row, RowId *rid) {
   Row src_row;
   RowId src_rid;
   if (child_executor_->Next(&src_row, &src_rid)) {
@@ -23,14 +23,17 @@ bool UpdateExecutor::Next([[maybe_unused]] Row *row, RowId *rid) {
     if (!table_info_->GetTableHeap()->UpdateTuple(dest_row, src_rid, txn_)) {
       return false;
     }
+    // 更新索引: 先删除旧索引条目，再插入新索引条目
     Row src_key_row;
     Row dest_key_row;
-    for (auto info : index_info_) {  // 更新索引
+    for (auto info : index_info_) {
       src_row.GetKeyFromRow(table_info_->GetSchema(), info->GetIndexKeySchema(), src_key_row);
       dest_row.GetKeyFromRow(table_info_->GetSchema(), info->GetIndexKeySchema(), dest_key_row);
       info->GetIndex()->RemoveEntry(src_key_row, src_rid, txn_);
       info->GetIndex()->InsertEntry(dest_key_row, src_rid, txn_);
     }
+    *row = dest_row;
+    *rid = src_rid;
     return true;
   }
   return false;

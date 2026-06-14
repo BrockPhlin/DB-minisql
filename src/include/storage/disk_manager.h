@@ -13,9 +13,10 @@
 #include "page/disk_file_meta_page.h"
 
 /**
- * DiskManager takes care of the allocation and de allocation of pages within a database. It performs the reading and
- * writing of pages to and from disk, providing a logical file layer within the context of a database management system.
- *
+ * DiskManager takes care of the allocation and de allocation of pages within a database. 
+ * It performs the reading and writing of pages to and from disk, 
+ * providing a logical file layer within the context of a database management system.
+ * 
  * Disk page storage format: (Free Page BitMap Size = PAGE_SIZE * 8, we note it as N)
  * | Meta Page | Free Page BitMap 1 | Page 1 | Page 2 | ....
  *      | Page N | Free Page BitMap 2 | Page N+1 | ... | Page 2N | ... |

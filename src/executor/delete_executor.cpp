@@ -15,7 +15,7 @@ void DeleteExecutor::Init() {
   txn_ = exec_ctx_->GetTransaction();
 }
 
-bool DeleteExecutor::Next([[maybe_unused]] Row *row, RowId *rid) {
+bool DeleteExecutor::Next(Row *row, RowId *rid) {
   if (child_executor_->Next(row, rid)) {
     if (!table_info_->GetTableHeap()->MarkDelete(*rid, txn_)) {
       return false;

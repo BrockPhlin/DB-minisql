@@ -6,3 +6,11 @@ datas/
 .idea/
 cmake-build-debug/
 cmake-build-release/
+.claude/
+.codex/
+.cache/
+/instruction-index-manager.md
+/instruction-catalog-manager.md
+CLAUDE.md
+AGENTS.md
+*.idx
