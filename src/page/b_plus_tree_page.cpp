@@ -74,14 +74,17 @@ void BPlusTreePage::SetMaxSize(int size) {
  * TODO: Student Implement
  */
 int BPlusTreePage::GetMinSize() const {
-    // if is root
+    // 根结点比较特殊，最小大小和普通结点不一样
     if (IsRootPage()){
         if (IsLeafPage()){
+            // 根结点同时也是叶子结点时，至少保留一个数据
             return 1;
         }else{
+            // 根结点是内部结点时，至少要有两个孩子
             return 2;
         }
     }
+    // 普通结点的最小大小一般是最大大小的一半，向上取整
     return (GetMaxSize() + 1) / 2;
 }
 
