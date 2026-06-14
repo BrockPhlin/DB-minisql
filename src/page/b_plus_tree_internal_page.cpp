@@ -212,12 +212,13 @@ page_id_t InternalPage::RemoveAndReturnOnlyChild() {
  */
 void InternalPage::MoveAllTo(InternalPage *recipient, GenericKey *middle_key,
                             BufferPoolManager *buffer_pool_manager) {
-    // set middle key at recipient's current end
+    // 先把本页所有 pair 追加到 recipient 末尾。注意 CopyNFrom 会整 pair 拷贝，
+    // 包含本页 index 0 那个 INVALID 占位键，因此必须放在写 middle_key 之前。
     int size = recipient->GetSize();
-    recipient->SetKeyAt(size, middle_key);
-    
-    // move all pairs from current page to recipient
     recipient->CopyNFrom(PairPtrAt(0), GetSize(), buffer_pool_manager);
+
+    // 再用父结点下沉的 middle_key 覆盖刚被搬过来的占位键，维持键序不变量。
+    recipient->SetKeyAt(size, middle_key);
 
     // clear current page
     SetSize(0);
