@@ -471,7 +471,7 @@ void BPlusTree::Redistribute(InternalPage *neighbor_node, InternalPage *node, in
 
     if (index == 0) {
         // 从右兄弟借第一个 child 到 node 尾部
-        // 原父 separator 下移到 node；右兄弟原来的第一个有效 key 上移为新的 separator
+        // 原父 separator 下移到 node，右兄弟原来的第一个有效 key 上移为新的 separator
         neighbor_node->MoveFirstToEndOf(node, parent->KeyAt(1), buffer_pool_manager_);
         parent->SetKeyAt(1, neighbor_node->KeyAt(0));
     } else {
