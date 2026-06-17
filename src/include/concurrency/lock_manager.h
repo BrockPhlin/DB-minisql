@@ -171,6 +171,9 @@ private:
 
     void CheckAbort(Txn *txn, LockRequestQueue &req_queue);
 
+    /** Depth-first search helper for HasCycle. Returns true once a back edge is found. */
+    bool DFS(txn_id_t txn_id);
+
 private:
     /** Lock table for lock requests. */
     std::unordered_map<RowId, LockRequestQueue> lock_table_{};

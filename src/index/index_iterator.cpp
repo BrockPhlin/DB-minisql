@@ -19,8 +19,7 @@ IndexIterator::IndexIterator(const IndexIterator &other)
       item_index(other.item_index),
       buffer_pool_manager(other.buffer_pool_manager) {
   // 迭代器持有 pinned 的叶子页。拷贝时不能直接复制 page 指针，
-  // 否则两个迭代器析构时会对同一个 pin 重复 Unpin。
-  // 正确做法是重新 Fetch 一次，让新迭代器拥有独立的 pin 计数。
+  // 否则两个迭代器析构时会对同一个 pin 重复 Unpin
   if (current_page_id != INVALID_PAGE_ID && buffer_pool_manager != nullptr) {
     Page *raw_page = buffer_pool_manager->FetchPage(current_page_id);
     ASSERT(raw_page != nullptr, "Leaf page not found when copying index iterator.");
@@ -33,7 +32,7 @@ IndexIterator::IndexIterator(IndexIterator &&other) noexcept
       page(other.page),
       item_index(other.item_index),
       buffer_pool_manager(other.buffer_pool_manager) {
-  // 移动构造直接转移 pin 的所有权，源迭代器置为 End 哨兵，避免析构时重复 Unpin。
+  // 移动构造直接转移 pin 的所有权，源迭代器置为 End 哨兵，避免析构时重复 Unpin
   other.current_page_id = INVALID_PAGE_ID;
   other.page = nullptr;
   other.item_index = 0;
