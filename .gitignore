@@ -2,6 +2,7 @@ bin/
 build/
 dbfiles/
 datas/
+databases/
 .vscode/
 .idea/
 cmake-build-debug/

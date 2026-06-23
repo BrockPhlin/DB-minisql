@@ -22,7 +22,9 @@ extern "C" {
  */
 class ExecuteEngine {
  public:
-  ExecuteEngine();
+  // auto_load=true：构造时扫描 ./databases 加载所有 db（main 用）
+  // auto_load=false：跳过扫描（test 用，避免撞未 flush 的 db 文件）
+  explicit ExecuteEngine(bool auto_load = true);
 
   ~ExecuteEngine() {
     for (auto it : dbs_) {

@@ -12,9 +12,18 @@
  *  ----------------------------------------------------------------------------
  *  | PageId (4)| LSN (4)| PrevPageId (4)| NextPageId (4)| FreeSpacePointer(4) |
  *  ----------------------------------------------------------------------------
- *  ----------------------------------------------------------------
- *  | TupleCount (4) | Tuple_1 offset (4) | Tuple_1 size (4) | ... |
- *  ----------------------------------------------------------------
+ *  ---------------------------------------------------------------------------------
+ *  | TupleCount (4) | HintFirstFree (4) | HintFirstValid (4) | Tuple_1 offset (4) |
+ *  ---------------------------------------------------------------------------------
+ *  | Tuple_1 size (4) | ... |
+ *  ------------------------
+ *
+ *  HintFirstFree:  bonus metadata — first slot index to scan when looking
+ *                  for a free slot during InsertTuple. Avoids O(N) scan.
+ *  HintFirstValid: bonus metadata — first slot index to scan when looking
+ *                  for a valid (non-deleted) tuple. Avoids O(N) scan.
+ *  Both hints are an optimization: correctness is preserved if they drift
+ *  (the scan is just slightly slower).
  **/
 
 #include <cstring>
@@ -93,6 +102,23 @@ class TablePage : public Page {
     memcpy(GetData() + OFFSET_TUPLE_SIZE + SIZE_TUPLE * slot_num, &size, sizeof(uint32_t));
   }
 
+  // Bonus: hint accessors for O(1) amortized insertion/lookup.
+  uint32_t GetHintFirstFreeSlot() {
+    return *reinterpret_cast<uint32_t *>(GetData() + OFFSET_HINT_FIRST_FREE);
+  }
+
+  void SetHintFirstFreeSlot(uint32_t s) {
+    memcpy(GetData() + OFFSET_HINT_FIRST_FREE, &s, sizeof(uint32_t));
+  }
+
+  uint32_t GetHintFirstValidSlot() {
+    return *reinterpret_cast<uint32_t *>(GetData() + OFFSET_HINT_FIRST_VALID);
+  }
+
+  void SetHintFirstValidSlot(uint32_t s) {
+    memcpy(GetData() + OFFSET_HINT_FIRST_VALID, &s, sizeof(uint32_t));
+  }
+
   static bool IsDeleted(uint32_t tuple_size) { return static_cast<bool>(tuple_size & DELETE_MASK) || tuple_size == 0; }
 
   static uint32_t SetDeletedFlag(uint32_t tuple_size) { return static_cast<uint32_t>(tuple_size | DELETE_MASK); }
@@ -102,14 +128,16 @@ class TablePage : public Page {
  private:
   static_assert(sizeof(page_id_t) == 4);
   static constexpr uint64_t DELETE_MASK = (1U << (8 * sizeof(uint32_t) - 1));
-  static constexpr size_t SIZE_TABLE_PAGE_HEADER = 24;
+  static constexpr size_t SIZE_TABLE_PAGE_HEADER = 32;  // +8 for HintFirstFree + HintFirstValid
   static constexpr size_t SIZE_TUPLE = 8;
   static constexpr size_t OFFSET_PREV_PAGE_ID = 8;
   static constexpr size_t OFFSET_NEXT_PAGE_ID = 12;
   static constexpr size_t OFFSET_FREE_SPACE = 16;
   static constexpr size_t OFFSET_TUPLE_COUNT = 20;
-  static constexpr size_t OFFSET_TUPLE_OFFSET = 24;
-  static constexpr size_t OFFSET_TUPLE_SIZE = 28;
+  static constexpr size_t OFFSET_HINT_FIRST_FREE = 24;   // bonus hint
+  static constexpr size_t OFFSET_HINT_FIRST_VALID = 28;  // bonus hint
+  static constexpr size_t OFFSET_TUPLE_OFFSET = 32;
+  static constexpr size_t OFFSET_TUPLE_SIZE = 36;
 
  public:
   static constexpr size_t SIZE_MAX_ROW = PAGE_SIZE - SIZE_TABLE_PAGE_HEADER - SIZE_TUPLE;

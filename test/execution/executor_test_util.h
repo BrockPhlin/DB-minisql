@@ -61,7 +61,9 @@ class ExecutorTest : public ::testing::Test {
     exec_ctx_ = std::make_unique<ExecuteContext>(txn_, db_test_->catalog_mgr_, db_test_->bpm_);
 
     // Construct the executor engine for the test
-    execution_engine_ = std::make_unique<ExecuteEngine>();
+    // auto_load=false: skip scanning ./databases/ to avoid hitting the
+    // executor_test.db file we just created (which hasn't been flushed yet).
+    execution_engine_ = std::make_unique<ExecuteEngine>(false);
   }
 
   /** Called after every executor test. */

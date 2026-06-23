@@ -49,38 +49,56 @@ void DiskManager::WritePage(page_id_t logical_page_id, const char *page_data) {
 
 /**
  * TODO: Student Implement
+ * 从磁盘中分配一个空闲数据页。
+ * @return 分配到的逻辑页号；磁盘已满时返回 INVALID_PAGE_ID
  */
 page_id_t DiskManager::AllocatePage() {
+  // 把 4KB 内存缓冲 reinterpret 成元数据页对象（零拷贝，二进制布局一致）
   auto *meta = reinterpret_cast<DiskFileMetaPage *>(meta_data_);
+
+  // 用"已分配页总数"作为下一个可分配的逻辑页号 —— 这保证返回的页号总是递增
   uint32_t allocated_page_id = meta->num_allocated_pages_;
 
+  // 现有 extent 还能容纳的页数
   uint32_t max_supported_pages = meta->num_extents_ * BITMAP_SIZE;
   if (allocated_page_id >= max_supported_pages) {
+    // 所有现有 extent 都用完了，看 meta 页是否还有空位能再开新 extent
+    // meta 页能记的 extent 数：(PAGE_SIZE - 8 字节计数器) / 4 字节每项 = 1024
     if (meta->num_extents_ >= (PAGE_SIZE - 8) / 4) {
-      return INVALID_PAGE_ID;
+      return INVALID_PAGE_ID;   // meta 也满了，整个数据库文件容量达到上限
     }
+    // 在物理上开新 extent：先写一个全 0 的 bitmap 页（占一个物理页）
+    // 物理位置 = 1（meta） + num_extents_ * (BITMAP_SIZE + 1)（前面 extent 占的物理页）
     page_id_t new_bitmap_physical_page_id = 1 + meta->num_extents_ * (BITMAP_SIZE + 1);
     char empty_page[PAGE_SIZE] = {0};
     WritePhysicalPage(new_bitmap_physical_page_id, empty_page);
     meta->num_extents_++;
   }
 
+  // 定位当前逻辑页所在的 extent
   uint32_t extent_id = allocated_page_id / BITMAP_SIZE;
+  // 该 extent 的 bitmap 页在物理文件中的位置
   page_id_t bitmap_physical_page_id = 1 + extent_id * (BITMAP_SIZE + 1);
+
+  // 读 - 改 - 写：把 4KB bitmap 读进栈上缓冲，reinterpret 成位图页对象
   char bitmap_data[PAGE_SIZE];
   ReadPhysicalPage(bitmap_physical_page_id, bitmap_data);
   auto *bitmap = reinterpret_cast<BitmapPage<PAGE_SIZE> *>(bitmap_data);
 
+  // 调位图页 API：找一个空闲位并标记为已分配（bit 从 0 变 1）
   uint32_t page_offset;
   if (!bitmap->AllocatePage(page_offset)) {
-    return INVALID_PAGE_ID;
+    return INVALID_PAGE_ID;   // 该 extent 真的满了（理论上前面已开新 extent，不会走到这里）
   }
 
+  // 把修改后的 bitmap 整页写回磁盘
   WritePhysicalPage(bitmap_physical_page_id, bitmap_data);
+
+  // 更新元数据：全局计数 + 当前段已用页数
   meta->num_allocated_pages_++;
   meta->extent_used_page_[extent_id]++;
 
-  return allocated_page_id;
+  return allocated_page_id;   // 返回的是逻辑页号，不是 page_offset
 }
 
 /**
