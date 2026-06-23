@@ -7,7 +7,7 @@ template <size_t PageSize>
 bool BitmapPage<PageSize>::AllocatePage(uint32_t &page_offset) {
   size_t max_size = GetMaxSupportedSize();
 
-  for(uint32_t i = 0; i < max_size; i++){
+  for(uint32_t i = 0; i < max_size; i++){ //用max_size相当于最多把整个页表遍历一遍
     uint32_t try_offset = (next_free_page_ + i) % max_size; //在头文件的next_free_page_的基础上进行
     if (IsPageFree(try_offset)){
       uint32_t byte_index = try_offset / 8;
@@ -37,7 +37,7 @@ bool BitmapPage<PageSize>::DeAllocatePage(uint32_t page_offset) {
 
   uint32_t byte_index = page_offset / 8;
   uint8_t bit_index = page_offset % 8;
-  bytes[byte_index] &= ~(1 << bit_index);//相应位置赋值为0
+  bytes[byte_index] &= ~(1 << bit_index);//相应位置赋值为0，各位取反再取交集，相应为回变成0
   page_allocated_ --;
   return true;
 }

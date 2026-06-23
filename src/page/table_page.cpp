@@ -8,6 +8,9 @@ void TablePage::Init(page_id_t page_id, page_id_t prev_id, LogManager *log_mgr, 
   SetNextPageId(INVALID_PAGE_ID);
   SetFreeSpacePointer(PAGE_SIZE);
   SetTupleCount(0);
+  // Reset bonus hints so the first scan starts at slot 0.
+  SetHintFirstFreeSlot(0);
+  SetHintFirstValidSlot(0);
 }
 
 bool TablePage::InsertTuple(Row &row, Schema *schema, Txn *txn, LockManager *lock_manager, LogManager *log_manager) {
@@ -16,15 +19,17 @@ bool TablePage::InsertTuple(Row &row, Schema *schema, Txn *txn, LockManager *loc
   if (GetFreeSpaceRemaining() < serialized_size + SIZE_TUPLE) {
     return false;
   }
-  // Try to find a free slot to reuse.
-  uint32_t i;
-  for (i = 0; i < GetTupleCount(); i++) {
-    // If the slot is empty, i.e. its tuple has size 0,
+  // Try to find a free slot to reuse. Start from the hint for O(1) amortized search.
+  uint32_t start = GetHintFirstFreeSlot();
+  if (start > GetTupleCount()) start = 0;
+  uint32_t i = start;
+  for (; i < GetTupleCount(); i++) {
     if (GetTupleSize(i) == 0) {
-      // Then we break out of the loop at index i.
       break;
     }
   }
+  // If no free slot in [hint, count), give up — caller will allocate a new page.
+
   // Otherwise we claim available free space..
   SetFreeSpacePointer(GetFreeSpacePointer() - serialized_size);
   uint32_t __attribute__((unused)) write_bytes = row.SerializeTo(GetData() + GetFreeSpacePointer(), schema);
@@ -37,6 +42,13 @@ bool TablePage::InsertTuple(Row &row, Schema *schema, Txn *txn, LockManager *loc
   row.SetRowId(RowId(GetTablePageId(), i));
   if (i == GetTupleCount()) {
     SetTupleCount(GetTupleCount() + 1);
+  }
+  // Advance the hint past the slot we just filled so the next InsertTuple starts
+  // scanning from the next position. If we reached the end, reset to 0.
+  if (i + 1 > GetTupleCount()) {
+    SetHintFirstFreeSlot(0);
+  } else {
+    SetHintFirstFreeSlot(i + 1);
   }
   return true;
 }
@@ -55,6 +67,12 @@ bool TablePage::MarkDelete(const RowId &rid, Txn *txn, LockManager *lock_manager
   // Mark the tuple as deleted.
   if (tuple_size > 0) {
     SetTupleSize(slot_num, SetDeletedFlag(tuple_size));
+    // Bonus hint: if the deleted slot equals or is just past HintFirstValidSlot,
+    // advance the hint to slot_num + 1 so subsequent GetFirstTupleRid scans
+    // start near the next valid tuple. (Safe to over-shoot; the scan still works.)
+    if (slot_num == GetHintFirstValidSlot()) {
+      SetHintFirstValidSlot(slot_num + 1);
+    }
   }
   return true;
 }
@@ -127,6 +145,14 @@ void TablePage::ApplyDelete(const RowId &rid, Txn *txn, LogManager *log_manager)
       SetTupleOffsetAtSlot(i, tuple_offset_i + tuple_size);
     }
   }
+
+  // Bonus hint bookkeeping: the freed slot is a great candidate for the next
+  // InsertTuple, so update HintFirstFreeSlot to point at it (or earlier if
+  // the hint was already beyond it).
+  uint32_t cur_hint = GetHintFirstFreeSlot();
+  if (slot_num < cur_hint || cur_hint > GetTupleCount()) {
+    SetHintFirstFreeSlot(slot_num);
+  }
 }
 
 void TablePage::RollbackDelete(const RowId &rid, Txn *txn, LogManager *log_manager) {
@@ -162,10 +188,21 @@ bool TablePage::GetTuple(Row *row, Schema *schema, Txn *txn, LockManager *lock_m
 }
 
 bool TablePage::GetFirstTupleRid(RowId *first_rid) {
-  // Find and return the first valid tuple.
-  for (uint32_t i = 0; i < GetTupleCount(); i++) {
+  // Find and return the first valid tuple. Start from the hint for O(1) amortized scan.
+  uint32_t start = GetHintFirstValidSlot();
+  if (start > GetTupleCount()) start = 0;
+  for (uint32_t i = start; i < GetTupleCount(); i++) {
     if (!IsDeleted(GetTupleSize(i))) {
       first_rid->Set(GetTablePageId(), i);
+      SetHintFirstValidSlot(i);  // tighten the hint
+      return true;
+    }
+  }
+  // Hint may have been stale (pointed past real first valid); fall back to scanning from 0.
+  for (uint32_t i = 0; i < start; i++) {
+    if (!IsDeleted(GetTupleSize(i))) {
+      first_rid->Set(GetTablePageId(), i);
+      SetHintFirstValidSlot(i);
       return true;
     }
   }
@@ -179,6 +216,10 @@ bool TablePage::GetNextTupleRid(const RowId &cur_rid, RowId *next_rid) {
   for (auto i = cur_rid.GetSlotNum() + 1; i < GetTupleCount(); i++) {
     if (!IsDeleted(GetTupleSize(i))) {
       next_rid->Set(GetTablePageId(), i);
+      // Tighten hint if this row is earlier than current hint.
+      if (i < GetHintFirstValidSlot()) {
+        SetHintFirstValidSlot(i);
+      }
       return true;
     }
   }

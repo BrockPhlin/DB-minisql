@@ -5,10 +5,16 @@
 
 static const char EMPTY_PAGE_DATA[PAGE_SIZE] = {0};
 
-BufferPoolManager::BufferPoolManager(size_t pool_size, DiskManager *disk_manager)
+BufferPoolManager::BufferPoolManager(size_t pool_size, DiskManager *disk_manager, Replacer *replacer)
     : pool_size_(pool_size), disk_manager_(disk_manager) {
   pages_ = new Page[pool_size_];
-  replacer_ = new LRUReplacer(pool_size_);
+  if (replacer != nullptr) {
+    replacer_ = replacer;
+    owns_replacer_ = false;
+  } else {
+    replacer_ = new LRUReplacer(pool_size_);
+    owns_replacer_ = true;
+  }
   for (size_t i = 0; i < pool_size_; i++) {
     free_list_.emplace_back(i);
   }
@@ -19,7 +25,9 @@ BufferPoolManager::~BufferPoolManager() {
     FlushPage(page.first);
   }
   delete[] pages_;
-  delete replacer_;
+  if (owns_replacer_) {
+    delete replacer_;
+  }
 }
 
 /**

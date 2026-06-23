@@ -1,0 +1,17 @@
+minisql > Minisql parse error at line 1, col 1, message: syntax error
+syntax error
+minisql > [INFO] Sql syntax parse ok!
+minisql > [INFO] Sql syntax parse ok!
+minisql > [INFO] Sql syntax parse ok!
++----------+
+| Database |
++----------+
+| db2      |
+| db1      |
++----------+
+minisql > Minisql parse error at line 2, col 1, message: syntax error
+syntax error
+minisql > [INFO] Sql syntax parse ok!
+No database selected
+minisql > [INFO] Sql syntax parse ok!
+No database selected

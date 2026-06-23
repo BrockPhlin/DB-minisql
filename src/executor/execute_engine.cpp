@@ -25,25 +25,28 @@ int yyparse(void);
 #include "parser/minisql_lex.h"
 }
 
-ExecuteEngine::ExecuteEngine() {
+ExecuteEngine::ExecuteEngine(bool auto_load) {
   char path[] = "./databases";
   DIR *dir;
   if ((dir = opendir(path)) == nullptr) {
     mkdir("./databases", 0777);
     dir = opendir(path);
   }
-  /** When you have completed all the code for
-   *  the test, run it using main.cpp and uncomment
-   *  this part of the code.
+  if (!auto_load) {
+    // 测试用：跳过目录扫描，避免撞未 flush 的 db 文件
+    closedir(dir);
+    return;
+  }
+  // 启动时扫描 ./databases 目录，把所有数据库加载到内存
+  // 这样 main 进程重启后，已经存在的数据库（含表、索引、数据）能从磁盘恢复
   struct dirent *stdir;
-  while((stdir = readdir(dir)) != nullptr) {
-    if( strcmp( stdir->d_name , "." ) == 0 ||
-        strcmp( stdir->d_name , "..") == 0 ||
+  while ((stdir = readdir(dir)) != nullptr) {
+    if (strcmp(stdir->d_name, ".") == 0 ||
+        strcmp(stdir->d_name, "..") == 0 ||
         stdir->d_name[0] == '.')
       continue;
-    dbs_[stdir->d_name] = new DBStorageEngine(stdir->d_name, false);
+    dbs_[stdir->d_name] = new DBStorageEngine(stdir->d_name, false);  // false = 从磁盘恢复
   }
-   **/
   closedir(dir);
 }
 
@@ -676,6 +679,11 @@ dberr_t ExecuteEngine::ExecuteExecfile(pSyntaxNode ast, ExecuteContext *context)
   file.close();
   std::string content = buffer.str();
 
+  // 记录 execfile 批次开始时间（验收要求：批量执行时显示总执行时间）
+  auto batch_start = std::chrono::system_clock::now();
+  // 统计本批次成功执行的 SQL 数量
+  size_t statement_count = 0;
+
   // 按分号分割并逐条执行
   std::string statement;
   for (size_t i = 0; i < content.size(); i++) {
@@ -693,6 +701,7 @@ dberr_t ExecuteEngine::ExecuteExecfile(pSyntaxNode ast, ExecuteContext *context)
             yyparse();
             if (!MinisqlParserGetError()) {
               Execute(MinisqlGetParserRootNode());
+              statement_count++;
             } else {
               std::cout << "Error in SQL: " << sql << std::endl;
               std::cout << MinisqlParserGetErrorMessage() << std::endl;
@@ -708,6 +717,13 @@ dberr_t ExecuteEngine::ExecuteExecfile(pSyntaxNode ast, ExecuteContext *context)
       statement += content[i];
     }
   }
+
+  // 统计本批次总耗时：用 microseconds 精度更细，避免毫秒被截到 0
+  auto batch_end = std::chrono::system_clock::now();
+  double batch_ms = std::chrono::duration_cast<std::chrono::microseconds>(batch_end - batch_start).count() / 1000.0;
+  std::cout << "Execfile [" << file_name << "] total: " << statement_count
+            << " statement(s), " << std::fixed << std::setprecision(4)
+            << batch_ms / 1000.0 << " sec." << std::endl;
 
   return DB_SUCCESS;
 }

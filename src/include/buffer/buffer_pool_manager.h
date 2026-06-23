@@ -14,7 +14,8 @@ using namespace std;
 
 class BufferPoolManager {
  public:
-  explicit BufferPoolManager(size_t pool_size, DiskManager *disk_manager);
+  explicit BufferPoolManager(size_t pool_size, DiskManager *disk_manager,
+                             Replacer *replacer = nullptr);
 
   ~BufferPoolManager();
 
@@ -51,6 +52,7 @@ class BufferPoolManager {
   DiskManager *disk_manager_;                        // pointer to the disk manager.
   unordered_map<page_id_t, frame_id_t> page_table_;  // to keep track of pages
   Replacer *replacer_;                               // to find an unpinned page for replacement
+  bool owns_replacer_{false};                        // whether BPM owns the replacer (deletes in dtor)
   list<frame_id_t> free_list_;                       // to find a free page for replacement
   recursive_mutex latch_;                            // to protect shared data structure
 };
