@@ -32,13 +32,15 @@
 
 项目采用 CMake 构建，核心代码位于 `src` 目录，测试代码位于 `test` 目录。底层依赖 GoogleTest 完成单元测试，主程序通过命令行交互和 `execfile` 支持端到端验收。
 
-小组分工如下：
+小组采用“主负责 + 共同协作”的分工方式。每个模块都有一名同学主要负责设计、实现、测试整理和个人报告撰写，另外两名同学参与接口讨论、联调、测试复核和文档互审。因此下面的“主要负责”不表示该模块由单人独立完成，而是表示该同学承担主要推进工作。
 
-- 程文博：Disk Manager、Buffer Pool Manager、Record Manager，以及 Clock Replacer、TablePage Hint 等扩展。
-- 彭逸涵：Index Manager、Catalog Manager，以及 Index 与 Catalog 组合场景的自设计测试。
-- 胡海洋：Executor Engine、Recovery Manager，以及 SQL 端到端执行流程相关功能。
+- 第 1、2 部分：Disk and Buffer Pool Manager、Record Manager，程文博主要负责，彭逸涵、胡海洋协作。
+- 第 3、4 部分：Index Manager、Catalog Manager，彭逸涵主要负责，程文博、胡海洋协作。
+- 第 5、6 部分：Executor Engine、Recovery Manager，胡海洋主要负责，程文博、彭逸涵协作。
+- 第 7 部分：Lock Manager，胡海洋主要负责，程文博、彭逸涵协作。
+- 系统联调、验收测试和总体设计报告由三人共同完成，各自重点复核自己主要负责模块与跨模块接口。
 
-此外，本组完成了第七部分 Lock Manager 的设计与实现，因此总体设计报告中单独保留第七章说明并发控制模块和思考题。
+由于本组完成了第七部分 Lock Manager 的设计与实现，因此总体设计报告中单独保留第七章说明并发控制模块和思考题。
 
 需要说明的是，MiniSQL 框架中已经提供了一部分基础设施，例如 Parser 生成的语法树结构、`Field` 类型比较、`GenericKey` / `KeyManager` 的序列化比较逻辑，以及 `TxnManager` 的事务边界控制。报告中会把这些内容作为依赖说明，不将其写成本组的主要实现。
 
@@ -493,6 +495,14 @@ Recovery 测试通过构造检查点和多事务日志，验证 Redo / Undo 后�
 ])
 
 = 第十章 总结
+
+== 分工与协作
+
+本组的实现和文档工作按模块划分主要负责人，但每个模块都经过组内讨论和交叉联调。程文博主要负责第 1、2 部分，即 Disk and Buffer Pool Manager 与 Record Manager；彭逸涵主要负责第 3、4 部分，即 Index Manager 与 Catalog Manager；胡海洋主要负责第 5、6 部分，即 Executor Engine 与 Recovery Manager。第 7 部分 Lock Manager 由胡海洋主要负责，程文博和彭逸涵参与并发控制设计讨论、测试复核和报告整理。
+
+在系统联调阶段，三人共同检查了 Catalog 与 Index、Executor 与 Record、Buffer Pool 与各上层模块之间的接口一致性，并补充运行单元测试、自设计测试和端到端 SQL 验收脚本。总体设计报告由三人共同整理，各成员重点校对自己主要负责模块的实现描述，避免把框架已有代码误写成本组实现。
+
+== 完成情况
 
 本项目最终形成了一个能够联合运行的 MiniSQL 系统。底层通过 Disk Manager 和 Buffer Pool Manager 提供页式存储；Record Manager 在页上组织表数据；Index Manager 提供 B+ 树索引；Catalog Manager 维护所有表和索引元信息；Executor Engine 将 SQL 语句转换为对表和索引的实际操作；Recovery Manager 和 Lock Manager 分别补充恢复和并发控制能力。
 
