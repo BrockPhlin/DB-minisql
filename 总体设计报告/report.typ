@@ -42,8 +42,6 @@
 
 第七部分 Lock Manager 也纳入本次实现范围，因此后文单独设置并发控制章节，并保留对应思考题。
 
-Parser 生成的语法树结构、`Field` 类型比较、`GenericKey` / `KeyManager` 的序列化比较逻辑，以及 `TxnManager` 的事务边界控制共同构成了系统的基础支撑。
-
 = 第一章 MiniSQL 总体架构
 
 == 系统功能
@@ -92,14 +90,15 @@ SQL 文本
   -> Disk Manager 持久化到数据库文件
 ```
 
-== 基础接口与依赖
+== 跨模块数据流
 
-系统实现建立在若干基础接口之上：
+系统中几个核心对象贯穿了多层模块：
 
-- Parser 负责生成 AST，ExecuteEngine 以 AST 根节点作为语句分发依据。
-- `Field` 的类型比较、`GenericKey` 的序列化比较和 `KeyManager` 为索引键构造与比较提供统一接口。
-- `TxnManager` 负责事务对象创建，以及提交、中止阶段的统一锁释放；`LockManager` 负责具体的锁请求、等待队列和死锁检测。
-- `ResultWriter` 负责查询结果的表格化输出，供执行层统一调用。
+- AST 是 SQL 语句进入执行层后的结构化表示，ExecuteEngine 根据 AST 根节点选择 DDL/Utility 路径或 Planner 路径。
+- Schema 描述表和索引的列结构，Catalog、Record、Executor 和 Index 都围绕 Schema 传递列信息。
+- RowId 连接表记录和索引项，TableHeap 用它定位记录，B+ 树叶子页用它作为索引值。
+- GenericKey 是索引键在 B+ 树页中的二进制表示，索引模块围绕它完成 Row、Schema 与页内键值对之间的转换和比较。
+- Txn 在线程执行、锁管理和表记录访问之间传递事务状态，Lock Manager 根据 Txn 的隔离级别和状态授予或拒绝锁请求。
 
 = 第二章 存储与缓冲层设计
 
@@ -179,7 +178,7 @@ TableHeap 通过页链表组织一张表的全部数据页。插入记录时，T
 
 Index Manager 负责在表记录之上提供快速查找能力。本项目实现的是基于磁盘页的 B+ 树索引。索引键由一列或多列 Field 序列化得到，叶子页保存索引键到 RowId 的映射，内部页保存索引键到子页号的映射。
 
-索引键比较由 `GenericKey` 和 `KeyManager` 统一完成。Index Manager 主要维护 B+ 树在插入、删除、分裂、合并、范围扫描和根页持久化过程中的结构不变量。
+B+ 树中的比较和定位都围绕序列化后的索引键进行。Index Manager 需要在插入、删除、分裂、合并、范围扫描和根页持久化过程中保持树结构不变量。
 
 == B+ 树页结构
 
@@ -293,7 +292,7 @@ Executor 统一采用 `Init` / `Next` 接口。`Init` 完成表、索引、子�
 
 Lock Manager 负责管理事务在记录 RowId 上的共享锁和独占锁。它根据事务隔离级别决定是否允许加锁，并在锁冲突时阻塞事务，直到锁可用或事务被死锁检测线程中止。
 
-事务创建、提交和中止由 TxnManager 统一管理。提交或中止时，TxnManager 会释放事务持有的锁；Lock Manager 则负责锁请求队列、锁升级、2PL 状态迁移和死锁检测。
+事务提交或中止时会触发锁释放流程。Lock Manager 在事务运行期间维护锁请求队列、锁升级、2PL 状态迁移和死锁检测。
 
 == 事务状态与隔离级别
 
