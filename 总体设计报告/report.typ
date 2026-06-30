@@ -1,4 +1,4 @@
-#import "../个人设计报告34/lib.typ": *
+#import "lib.typ": *
 
 #show: bubble.with(
   title: "MiniSQL 总体设计报告",
@@ -9,17 +9,6 @@
   date: datetime.today().display("[year] 年 [month padding:none] 月 [day padding:none] 日"),
 )
 
-#let screenshot-box(title, body) = block(
-  fill: luma(245),
-  stroke: 0.8pt + luma(170),
-  inset: 1em,
-  radius: 0.3em,
-  width: 100%,
-)[
-  #strong(title)
-
-  #body
-]
 
 #outline(title: "目录")
 #pagebreak()
@@ -286,76 +275,15 @@ Executor 统一采用 `Init` / `Next` 接口。`Init` 完成表、索引、子�
 
 通过这种接口，插入、删除和更新都可以把扫描逻辑作为子执行器复用，避免每种 DML 语句都重新实现过滤和遍历。
 
-= 第七章 并发控制与 Lock Manager
+= 第七章 Recovery Manager 设计
 
 == 模块定位
 
-Lock Manager 负责管理事务在记录 RowId 上的共享锁和独占锁。它根据事务隔离级别决定是否允许加锁，并在锁冲突时阻塞事务，直到锁可用或事务被死锁检测线程中止。
-
-事务提交或中止时会触发锁释放流程。Lock Manager 在事务运行期间维护锁请求队列、锁升级、2PL 状态迁移和死锁检测。
-
-== 事务状态与隔离级别
-
-系统支持三种隔离级别：
-
-- `READ_UNCOMMITTED`：不需要共享锁读取，因此对共享锁请求直接中止。
-- `READ_COMMITTED`：允许读锁较早释放，但写锁释放后事务进入收缩阶段。
-- `REPEATABLE_READ`：遵循两阶段锁协议，事务释放任意锁后进入收缩阶段，之后不能再申请新锁。
-
-事务状态主要包括 Growing、Shrinking、Committed 和 Aborted。Lock Manager 在加锁前检查事务状态，如果事务已经进入 Shrinking 阶段仍尝试申请新锁，则将其置为 Aborted 并抛出异常。
-
-== 锁请求队列
-
-每个 RowId 对应一个 `LockRequestQueue`。队列中保存该记录上的所有锁请求，并维护以下状态：
-
-- 当前是否有事务持有独占锁。
-- 当前共享锁持有者数量。
-- 当前是否存在锁升级请求。
-- 条件变量，用于唤醒等待中的事务。
-
-共享锁只与已经授予的独占锁冲突。独占锁与任何已经授予的共享锁或独占锁冲突。锁升级需要从共享锁转换为独占锁，并且同一条记录上同一时刻只允许一个事务执行升级，否则会产生升级冲突。
-
-== 加锁与释放流程
-
-`LockShared` 在隔离级别允许的情况下插入共享锁请求。如果当前存在写锁，则通过条件变量等待。被唤醒后会检查事务是否已经被死锁检测线程中止。
-
-`LockExclusive` 插入独占锁请求后，需要等待当前没有写锁且共享锁数量为 0。成功后将该锁加入事务的 exclusive lock set。
-
-`LockUpgrade` 要求事务已经持有共享锁。升级时先把请求模式改为独占锁，再等待自己成为唯一共享锁持有者，同时没有其他写锁。成功后从 shared lock set 移到 exclusive lock set。
-
-`Unlock` 会从事务的锁集合和对应 RowId 的请求队列中移除锁，并根据隔离级别更新事务状态。释放锁后调用 `notify_all`，让等待事务重新检查条件。
-
-== 死锁检测
-
-Lock Manager 后台周期性构建等待图。图中的边 `T1 -> T2` 表示事务 T1 正在等待事务 T2 持有的锁。构图时跳过已经中止的事务，避免无效节点影响检测结果。
-
-环检测使用 DFS。为了保证测试结果确定，检测时总是从较小事务 id 开始遍历，邻接点也按从小到大的顺序探索。一旦发现环，选择环中事务 id 最大的事务作为 victim，将其状态置为 Aborted，并通知等待队列。等待中的事务被唤醒后会检测到自身已中止并抛出异常。
-
-== 思考题
-
-目前 Lock Manager 主要在 RowId 粒度上提供记录锁。如果要把它完整接入并发查询，尤其是 B+ 树并发修改，还需要在多个模块上补充设计。
-
-首先，Executor 层需要在所有访问记录的位置显式传递事务对象。SeqScan 和 IndexScan 在读取记录前申请共享锁，Insert、Delete、Update 在修改记录前申请独占锁。提交和中止时由 TxnManager 统一释放锁，同时执行器需要根据异常正确终止当前语句。
-
-其次，TableHeap 和 TablePage 中的读写接口需要和锁管理保持一致。当前 TablePage 已有读写 latch，但 latch 保护的是内存页结构，Lock Manager 保护的是事务之间的数据访问语义。两者不能混用：页 latch 应短时间持有，用于保护页内结构；记录锁可以跨越更长的事务阶段，用于保证隔离级别。
-
-再次，B+ 树并发修改需要引入页面级 latch 和 crabbing 策略。查找路径可以从根向下加读 latch，并在确认子节点安全后释放父节点；插入和删除路径需要根据节点是否会分裂或合并决定是否继续持有祖先 latch。叶子页链表范围扫描还需要处理扫描过程中叶子页被分裂或合并的情况。
-
-最后，索引和表的修改必须保持一致。Insert 需要先写表再写索引，Delete 和 Update 需要同时维护旧索引项和新索引项。如果中间失败，需要配合 Recovery Manager 的日志或事务写集合回滚。否则在并发执行时，可能出现表中存在记录但索引缺失，或索引指向已经删除记录的问题。
-
-= 第八章 Recovery Manager 设计
-
-== 模块定位
-
-Recovery Manager 在本项目中采用简化的内存级设计。它不直接接入真实 Disk Manager 和 Buffer Pool，而是用 `unordered_map` 模拟数据库中的键值数据。这样做可以把恢复算法本身从页结构、刷盘策略和日志落盘细节中拆出来，便于单元测试验证 Redo 和 Undo 的正确性。
+Recovery Manager 在本项目中采用简化的内存级设计，用 `unordered_map` 模拟数据库中的键值数据，将恢复算法本身从页结构、刷盘策略和日志落盘细节中拆出来，便于单元测试验证 Redo 和 Undo 的正确性。
 
 == 日志结构
 
-日志记录 `LogRec` 保存事务恢复需要的信息。每条日志包含日志类型、LSN、同事务上一条日志的 prev_lsn、事务 id，以及数据操作所需的 key、old value 和 new value。
-
-日志类型包括插入、删除、更新、事务开始、提交和中止。`prev_lsn` 将同一事务的日志串成反向链，Undo 时可以从事务最后一条日志沿链回溯。
-
-日志集合使用 `std::map<lsn_t, LogRecPtr>` 保存。这样 Redo 阶段可以按 LSN 升序重放，Undo 阶段可以按 LSN 降序扫描，避免无序容器导致恢复顺序不确定。
+日志记录 `LogRec` 保存事务恢复需要的信息，包含日志类型（插入、删除、更新、事务开始、提交和中止）、LSN、同事务上一条日志的 `prev_lsn`、事务 id，以及数据操作所需的 key、old value 和 new value。`prev_lsn` 将同一事务的日志串成反向链，Undo 时可以从事务最后一条日志沿链回溯。日志集合使用 `std::map<lsn_t, LogRecPtr>` 保存，Redo 阶段按 LSN 升序重放，Undo 阶段按 LSN 降序扫描。
 
 == CheckPoint
 
@@ -363,11 +291,78 @@ CheckPoint 表示一次恢复开始时的持久化快照，包含检查点 LSN�
 
 == Redo 与 Undo
 
-Redo 阶段从检查点 LSN 之后开始，按日志顺序重放所有操作。提交日志会把事务从活跃事务表中删除；开始日志会加入活跃事务；插入、删除、更新分别按照 after image 重做。遇到 Abort 日志时，系统沿该事务的 prev_lsn 链反向撤销该事务已经产生的修改，并将该事务从活跃事务表移除。
+Redo 阶段从检查点 LSN 之后开始，按日志顺序重放所有操作。提交日志会把事务从活跃事务表中删除；开始日志会加入活跃事务；插入、删除、更新分别按照 after image 重做。遇到 Abort 日志时，系统沿该事务的 `prev_lsn` 链反向撤销该事务已经产生的修改，并将该事务从活跃事务表移除。Undo 阶段处理 Redo 后仍留在活跃事务表中的事务，逆序扫描日志，把它们的修改全部撤销。插入的逆操作是删除 key，删除和更新的逆操作是恢复 old value。该实现省略了真实 ARIES 中的 CLR 和页 LSN 判断，但保留了日志驱动恢复、检查点、Redo、Undo 和事务日志链这些核心思想。
 
-Undo 阶段处理 Redo 后仍留在活跃事务表中的事务。这些事务在崩溃前未提交，因此需要逆序扫描日志，把它们的修改全部撤销。插入的逆操作是删除 key，删除和更新的逆操作是恢复 old value。
+== 思考题
 
-该实现省略了真实 ARIES 中的 CLR 和页 LSN 判断，但保留了日志驱动恢复、检查点、Redo、Undo 和事务日志链这些核心思想。
+本模块中为了简化实验难度，将 Recovery Manager 模块独立出来。如果不独立，真正做到数据库在任何时候断电都能恢复，同时支持事务的回滚，Recovery Manager 应怎样设计？此外 CheckPoint 机制应怎样设计？
+
+=== 1. LogManager 的完整实现
+
+当前 `LogManager` 是一个空类（`class LogManager {};`），需实现为 WAL 核心组件。日志类型需增加 `kCLR`（补偿日志记录，用于记录 Undo 操作本身，重启时不再被 Undo）以及 `kCheckPointBegin` / `kCheckPointEnd`。`LogRec` 需将当前测试用的 `KeyType = std::string` / `ValType = int32_t` 替换为真实的 `table_id_t`、`RowId` 和序列化后的 `Row` 数据。LogManager 维护内存日志缓冲区 `log_buffer_`，以下条件触发刷盘：(a) 缓冲区满；(b) 事务提交时 COMMIT 日志必须刷盘（WAL 规则）；(c) 定时刷盘。需实现日志的 `Serialize` / `Deserialize`，每条日志前附 4 字节长度 + 4 字节 CRC 校验和。
+
+=== 2. WAL 协议与 Page LSN
+
+WAL 核心规则：脏页刷回磁盘前，必须先将其相关的所有日志刷盘。每个数据页页头已有 `lsn_` 字段（`TablePage` 通过 `OFFSET_LSN = 4`，`BPlusTreePage` 中已有 `SetLSN` 方法）。需修改的函数：`TablePage::InsertTuple`、`MarkDelete`、`ApplyDelete`、`UpdateTuple` 在修改页数据后调用 `page->SetLSN(log_lsn)`；B+ 树页的插入、删除、分裂、合并函数同理。`BufferPoolManager::FlushPage` 在写脏页前需检查日志是否已刷到该页 LSN 之后，若未刷则先触发 LogManager 刷盘。
+
+=== 3. Recovery Manager 的磁盘级三阶段恢复
+
+- **Analysis**：从 CheckPoint 记录的活跃事务表和脏页表出发，正向扫描日志。遇 `kBegin` 将事务加入活跃事务表；遇 `kCommit` / `kAbort` 移除；遇数据操作日志记录涉及的页号和事务 UndoNextLSN。得到崩溃时未提交事务集合与脏页集合。
+- **Redo**：从脏页表最小 `rec_lsn` 开始正向重放。若 `page_lsn < log_lsn`，将 after-image 应用到页上并更新页 LSN；否则跳过。`kCLR` 日志也需重放。
+- **Undo**：对活跃事务集合逆序扫描，沿 `prev_lsn_` 链撤销。`kInsert` 的 Undo 调用 `TableHeap::ApplyDelete` 并生成 CLR；`kDelete` 的 Undo 以 `old_row` 重新插入并生成 CLR；`kUpdate` 的 Undo 恢复 `old_row` 并生成 CLR。遇 CLR 日志不执行 Undo，沿 `undo_next_lsn` 继续。
+
+=== 4. CheckPoint 机制设计
+
+真实系统需模糊检查点（fuzzy checkpoint），执行时不阻塞正常事务。触发条件：周期触发（如每 60 秒）、日志文件超阈值、系统正常关闭时（`ExecuteQuit` 时显式触发）。执行流程：(1) 写 `kCheckPointBegin` 日志；(2) 遍历 `TxnManager` 活跃事务表，记录每个事务的 `txn_id` 和 `last_lsn`；(3) 遍历 `BufferPoolManager` 所有 pin count=0 的 frame，收集脏页的 `page_id` 和 `page_lsn`；(4) 将活跃事务表和脏页表序列化放入 `kCheckPointEnd` 日志并刷盘；(5) 将 `checkpoint_lsn_` 写入 Disk Meta Page 的 `last_checkpoint_lsn` 字段。需在 `DiskFileMetaPage` 中新增 `last_checkpoint_lsn` 字段，`DiskManager` 提供读写接口。
+
+=== 5. 各模块改造汇总
+
+- `LogRec`：扩展为真实 `table_id_t`、`RowId`、序列化 `Row`；新增 `kCLR` 类型；实现序列化/反序列化。
+- `LogManager`：日志缓冲、刷盘线程、日志文件管理、序列化写入/读取。
+- `DiskManager`：新增 `WriteLog` / `ReadLog` 接口；新增 `last_checkpoint_lsn` 读写。
+- `BufferPoolManager`：`FlushPage` 中增加 WAL 检查；提供获取脏页及 page_lsn 的接口。
+- `RecoveryManager`：实现 Analysis→Redo→Undo 三阶段；从日志文件读取日志；将 `data_` 替换为对 Buffer Pool 真实页数据的物理修改。
+- `TablePage`：补充 `GetLSN()` / `SetLSN()` 方法；各修改函数追加 LSN 更新。
+- `BPlusTreePage`：已有 `SetLSN`，各结构修改函数追加 LSN 更新。
+- `ExecuteEngine`：TrxBegin/TrxCommit/TrxRollback 中集成日志写入；构造函数中触发恢复流程。
+- `TxnManager`：维护活跃事务表；Commit 时刷 COMMIT 日志；Abort 时通过 Recovery Manager 执行 Undo。
+
+=== 6. 与 Lock Manager 的协调与故障覆盖
+
+恢复第一步是清空 `LockManager::lock_table_` 中所有锁请求（崩溃后未提交事务的锁无效）。死锁 Abort 时，Undo 需在持锁下执行。故障场景：(a) 事务执行中崩溃→Undo 回滚；(b) CheckPoint 中途崩溃→从上一个完整 CheckPoint 恢复；(c) WAL 规则保证脏页不会先于日志落盘；(d) CRC 校验检测日志损坏。
+= 第八章 并发控制与 Lock Manager
+
+== 模块定位
+
+Lock Manager 负责管理事务在 RowId 粒度上的共享锁和独占锁，根据隔离级别决定是否允许加锁，在锁冲突时通过条件变量阻塞事务，后台周期性运行死锁检测并解除死锁。本模块对外提供 `LockShared`、`LockExclusive`、`LockUpgrade`、`Unlock` 四个主要锁操作，内部通过 `LockPrepare`、`CheckAbort` 辅助完成前置检查和异常处理。
+
+== 核心数据结构
+
+每个 `RowId` 对应一个 `LockRequestQueue`，其 `req_list_` 按到达顺序保存所有锁请求，通过 `granted_` 字段区分 hold/wait 关系。队列维护 `is_writing_`（是否有独占锁持有者）、`sharing_cnt_`（共享锁持有者数量）、`is_upgrading_`（是否正有升级进行）三个状态标记和 `cv_` 条件变量。每个 `Txn` 维护 `SharedLockSet` 和 `ExclusiveLockSet` 两个集合，用于事务结束时的批量释放、死锁检测时的资源定位和锁升级时的集合迁移。
+
+== 加锁与释放流程
+
+`LockPrepare` 作为公共入口，检查事务是否已进入 Shrinking 阶段（2PL 协议的严格性保证）并按需惰性创建请求队列。`LockShared` 首先拒绝 `READ_UNCOMMITTED` 隔离级别的共享锁请求，然后仅在当前有独占锁时通过条件变量等待；成功后加入 `SharedLockSet` 并递增 `sharing_cnt_`。`LockExclusive` 需等待 `!is_writing_ && sharing_cnt_ == 0` 即记录上既无写锁也无读锁。`LockUpgrade` 允许已持有共享锁的事务升级为独占锁，同一条记录上同一时刻只允许一个升级请求（通过 `is_upgrading_` 互斥），升级需等待自己成为唯一共享锁持有者。`Unlock` 从事务的锁集合和请求队列中移除锁，并根据隔离级别更新 2PL 状态：`REPEATABLE_READ` 下释放任意锁即进入 Shrinking，`READ_COMMITTED` 下仅释放独占锁才结束 Growing。释放后 `notify_all` 唤醒等待线程。`CheckAbort` 在线程被唤醒后检测事务是否被死锁检测异步中止，若已中止则清理请求并抛出 `TxnAbortException`。
+
+== 死锁检测
+
+后台线程 `RunCycleDetection` 周期性构建等待图：遍历每个 `LockRequestQueue`，将 `granted_ == kNone` 的请求作为等待者，与所有已授权事务之间建立有向边。环检测采用确定性 DFS：从最小事务 id 出发，`std::set` 保证邻居遍历有序；发现环后选择环中事务 id 最大的事务作为 victim，调用 `DeleteNode` 从等待图中移除其所有出入边，并异步置其为 Aborted 状态。最后 `notify_all` 唤醒所有等待线程，被中止线程的 `CheckAbort` 检测到异常并抛出。
+
+== 思考题
+
+=== 问题一：Lock Manager 与 Executor 的并发查询接入
+
+`ExecuteEngine` 中 `ExecuteTrxBegin`/`Commit`/`Rollback` 需从返回 `DB_FAILED` 的占位实现改为调用 `TxnManager::Begin`/`Commit`/`Abort`。Commit 时遍历锁集合并逐一 Unlock，Abort 时还需沿 Undo 链回滚修改。`ExecutePlan` 需从会话上下文获取事务指针而非传 `nullptr`，支持 auto-commit 隐式事务和显式事务两种模式。
+
+各 Executor 加锁点：`SeqScanExecutor::Next` 在返回记录前调用 `LockShared`（`READ_UNCOMMITTED` 跳过）；`IndexScanExecutor` 在获取 RowId 后立即加锁再回表；`InsertExecutor` 先 `InsertTuple` 获 RowId 再 `LockExclusive`，失败则 `ApplyDelete` 回滚；`DeleteExecutor` 和 `UpdateExecutor` 在操作前对旧 RowId 加 `LockExclusive`。`TxnAbortException` 需在 Executor 层捕获并停止迭代，ExecuteEngine 中识别该异常类型触发回滚。
+
+=== 问题二：B+ 树并发修改的完整设计
+
+需在 `BPlusTreePage` 引入页面级 latch（读/写两种模式），实现 Crabbing 协议：查找路径从根向下加读 latch，确认子页安全后释放祖先；插入路径加写 latch，子页安全（`size < max_size - 1`）时释放祖先，不安全时保留祖先以支持分裂向上传播；删除安全条件为 `size > min_size`；范围扫描在叶子链表遍历时保持当前页读 latch。`AdjustRoot` 修改 `root_page_id_` 时需全局 tree_latch 保护。记录锁与页面 latch 的加锁顺序：始终先获取记录锁再获取页面 latch，避免跨层死锁。
+
+=== 问题三：索引与表数据的一致性
+
+Insert 先写表再写索引，若索引更新失败需 MarkDelete 表记录并释放锁。Delete 先删索引项再 MarkDelete。Update 可能改变 RowId（新记录在原页放不下时），需在两个 RowId 上均持有锁。唯一约束检查必须在独占锁保护下与索引插入原子完成，避免并发中的幽灵冲突。
 
 = 第九章 系统测试与自设计测试
 
@@ -381,117 +376,122 @@ Undo 阶段处理 Redo 后仍留在活跃事务表中的事务。这些事务在
 
 Disk Manager 测试关注位图页分配、空闲页判断、跨页读写和释放后再分配。Buffer Pool Manager 测试关注页面换入换出、dirty page 刷盘、pin count 维护和替换策略。
 
-#screenshot-box([截图占位：Disk / Buffer 测试结果], [
-  此处放置 Disk Manager、LRU Replacer、Buffer Pool Manager 相关测试的终端截图。截图应包含实际执行的测试命令、测试套件名称和最终通过状态。不要在正文中手工粘贴测试输出文本。
-
-  获取方式：在项目根目录执行以下命令，并截取命令和测试结果同屏的终端画面。
-
-  ```bash
-  cd build
-  ./test/minisql_test --gtest_filter="DiskManagerTest.*:LRUReplacerTest.*:BufferPoolManagerTest.*"
-  ```
-])
+// TODO: 截图位置 — Disk Manager、LRU Replacer、Buffer Pool Manager 测试结果
+// 保存为: 总体设计报告/images/9_1_disk_buffer_test.png
+运行命令:
+```bash
+cd build && ./test/minisql_test --gtest_filter="DiskManagerTest.*:LRUReplacerTest.*:BufferPoolManagerTest.*"
+```
+#block(
+  fill: luma(240), inset: 1em, radius: 0.3em, width: 100%,
+)[
+  *测试结果* — Disk / Buffer 测试成功通过:
+  #figure(image("images/9_1_disk_buffer_test.png", width: 80%), caption: [Disk / Buffer 测试结果])
+]
 
 Clock Replacer 的自设计测试覆盖空替换器、重复 Unpin、Pin 后不可淘汰、全员 reference bit 为 1 时的第二次机会，以及连续淘汰不重复等场景。
 
-#screenshot-box([截图占位：Clock Replacer 自设计测试], [
-  此处放置 Clock Replacer 自设计测试运行截图。截图应能体现所有 Clock 相关用例均已运行，并显示最终通过状态。
-
-  获取方式：在项目根目录执行以下命令，并截取包含完整命令和最终结果的终端画面。
-
-  ```bash
-  cd build
-  ./test/minisql_test --gtest_filter="CLOCKReplacerTest.*"
-  ```
-])
+// TODO: 截图位置 — Clock Replacer 测试结果
+// 保存为: 总体设计报告/images/9_2_clock_test.png
+运行命令:
+```bash
+cd build && ./test/minisql_test --gtest_filter="CLOCKReplacerTest.*"
+```
+#block(
+  fill: luma(240), inset: 1em, radius: 0.3em, width: 100%,
+)[
+  *测试结果* — Clock Replacer 测试成功通过:
+  #figure(image("images/9_2_clock_test.png", width: 80%), caption: [Clock Replacer 测试结果])
+]
 
 == Record Manager 测试
 
 Record Manager 测试覆盖 Field、Row、Column、Schema 的序列化和反序列化，以及 TableHeap 中大量记录插入、遍历、删除和更新流程。
 
-#screenshot-box([截图占位：Record / TableHeap 测试结果], [
-  此处放置 TupleTest 和 TableHeapTest 的测试截图。截图应包含命令、测试套件名称和最终通过状态。
-
-  获取方式：在项目根目录执行以下命令，并截取终端截图。
-
-  ```bash
-  cd build
-  ./test/minisql_test --gtest_filter="TupleTest.*:TableHeapTest.*"
-  ```
-])
+// TODO: 截图位置 — TupleTest + TableHeapTest 测试结果
+// 保存为: 总体设计报告/images/9_3_record_test.png
+运行命令:
+```bash
+cd build && ./test/minisql_test --gtest_filter="TupleTest.*:TableHeapTest.*"
+```
+#block(
+  fill: luma(240), inset: 1em, radius: 0.3em, width: 100%,
+)[
+  *测试结果* — Record / TableHeap 测试成功通过:
+  #figure(image("images/9_3_record_test.png", width: 80%), caption: [Record / TableHeap 测试结果])
+]
 
 == Index 与 Catalog 测试
 
 Index Manager 测试覆盖 B+ 树插入、查找、删除、迭代器顺序扫描和重复键处理。Catalog Manager 测试覆盖表元信息和索引元信息序列化、创建、删除和重启加载。
 
-#screenshot-box([截图占位：Index / Catalog 测试结果], [
-  此处放置 BPlusTreeTests、IndexIteratorTest、CatalogTest 等相关测试截图。截图应显示测试命令、测试用例集合和最终通过状态。
-
-  获取方式：在项目根目录执行以下命令，并截取终端截图。
-
-  ```bash
-  cd build
-  ./test/minisql_test --gtest_filter="BPlusTreeTests.*:CatalogTest.*:PageTests.IndexRootsPageTest"
-  ```
-])
+// TODO: 截图位置 — BPlusTree + Catalog 测试结果
+// 保存为: 总体设计报告/images/9_4_index_catalog_test.png
+运行命令:
+```bash
+cd build && ./test/minisql_test --gtest_filter="BPlusTreeTests.*:CatalogTest.*:PageTests.IndexRootsPageTest"
+```
+#block(
+  fill: luma(240), inset: 1em, radius: 0.3em, width: 100%,
+)[
+  *测试结果* — Index / Catalog 测试成功通过:
+  #figure(image("images/9_4_index_catalog_test.png", width: 80%), caption: [Index / Catalog 测试结果])
+]
 
 本组还补充了 Index 与 Catalog 的组合测试，重点验证已有数据建索引时的回填、索引范围扫描、重复键拒绝、Catalog 重启加载和 DropIndex / DropTable 后的持久化状态。
 
-#screenshot-box([截图占位：Index + Catalog 自设计测试], [
-  此处放置 `custom_index_catalog_test` 的运行截图。截图应体现自设计测试文件被执行，并显示全部用例通过。
-
-  获取方式：在项目根目录执行以下命令，并截取终端截图。
-
-  ```bash
-  cd build
-  cmake --build . --target custom_index_catalog_test
-  ./test/custom_index_catalog_test
-  ```
-])
+// TODO: 截图位置 — custom_index_catalog_test 测试结果
+// 保存为: 总体设计报告/images/9_5_custom_index.png
+运行命令:
+```bash
+cd build && cmake --build . --target custom_index_catalog_test && ./test/custom_index_catalog_test
+```
+#block(
+  fill: luma(240), inset: 1em, radius: 0.3em, width: 100%,
+)[
+  *测试结果* — Index + Catalog 组合测试成功通过:
+  #figure(image("images/9_5_custom_index.png", width: 80%), caption: [Index + Catalog 组合测试])
+]
 
 == Executor 与端到端测试
 
 Executor 测试覆盖 SeqScan、IndexScan、Insert、Delete、Update 等执行器。端到端测试通过 `execfile` 执行 SQL 脚本，验证从 SQL 文本到最终数据结果的完整路径。
 
-#screenshot-box([截图占位：Executor 与验收 SQL 测试], [
-  此处放置 ExecutorTest 运行截图，以及通过 MiniSQL 主程序执行验收 SQL 脚本的截图。截图应包含输入命令、脚本名或测试名，以及最终执行成功状态。
-
-  获取方式一：执行 Executor 单元测试并截图。
-
-  ```bash
-  cd build
-  ./test/minisql_test --gtest_filter="ExecutorTest.*"
-  ```
-
-  获取方式二：从项目根目录启动 MiniSQL 主程序，输入验收脚本命令后截图。
-
-  ```bash
-  ./build/bin/main
-  ```
-
-  进入交互界面后输入：
-
-  ```sql
-  execfile test_acceptance.sql;
-  quit;
-  ```
-])
+// TODO: 截图位置 — ExecutorTest + execfile 端到端测试结果
+// 保存为: 总体设计报告/images/9_6_executor_test.png (单元测试) + images/9_7_acceptance.png (端到端)
+方式一 (单元测试):
+```bash
+cd build && ./test/minisql_test --gtest_filter="ExecutorTest.*"
+```
+方式二 (端到端):
+```bash
+cd build && ./bin/main
+execfile test_acceptance.sql;
+quit;
+```
+#block(
+  fill: luma(240), inset: 1em, radius: 0.3em, width: 100%,
+)[
+  *测试结果* — Executor 与验收 SQL 测试成功通过:
+  #figure(image("images/9_6_executor_test.png", width: 80%), caption: [Executor 测试结果])
+]
 
 == Recovery 与 Lock Manager 测试
 
 Recovery 测试通过构造检查点和多事务日志，验证 Redo / Undo 后的数据状态符合预期。Lock Manager 测试覆盖共享锁、独占锁、锁升级、解锁、事务状态变化和死锁检测。
 
-#screenshot-box([截图占位：Recovery / Lock Manager 测试结果], [
-  此处放置 RecoveryManagerTest 和 LockManagerTest 的运行截图。截图应包含实际执行命令、测试套件名称和最终通过状态。
-
-  获取方式：在项目根目录执行以下命令，并截取终端截图。
-
-  ```bash
-  cd build
-  ./test/recovery_manager_test
-  ./test/lock_manager_test
-  ```
-])
+// TODO: 截图位置 — RecoveryManagerTest + LockManagerTest 测试结果
+// 保存为: 总体设计报告/images/9_7_recovery_lock_test.png
+运行命令:
+```bash
+cd build && ./test/recovery_manager_test && ./test/lock_manager_test
+```
+#block(
+  fill: luma(240), inset: 1em, radius: 0.3em, width: 100%,
+)[
+  *测试结果* — Recovery / Lock Manager 测试成功通过:
+  #figure(image("images/9_7_recovery_lock_test.png", width: 80%), caption: [Recovery / Lock Manager 测试结果])
+]
 
 = 第十章 总结
 
